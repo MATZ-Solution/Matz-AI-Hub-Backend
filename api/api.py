@@ -226,22 +226,33 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.post("/sessions")
 async def create_chat_session(organization_id: str = "matz-demo-org"):
-    session_id = create_session(organization_id)
+    try:
+        session_id = create_session(organization_id)
+    except Exception as e:
+        logger.error("API → create session raised: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {e}")
     if not session_id:
-        raise HTTPException(status_code=500, detail="Failed to create session")
+        raise HTTPException(status_code=500, detail="Failed to create session (supabase returned null, check server logs)")
     return {"session_id": session_id}
 
 
 @app.get("/sessions")
 async def list_sessions(organization_id: str = "matz-demo-org"):
-    # Only return sessions that have at least one message
-    all_sessions = get_sessions(organization_id)
+    try:
+        all_sessions = get_sessions(organization_id)
+    except Exception as e:
+        logger.error("API → list sessions raised: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {e}")
     return {"sessions": all_sessions, "total": len(all_sessions)}
 
 
 @app.delete("/sessions/{session_id}")
 async def delete_chat_session(session_id: str):
-    success = delete_session(session_id)
+    try:
+        success = delete_session(session_id)
+    except Exception as e:
+        logger.error("API → delete session raised: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {e}")
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete session")
     return {"success": True, "session_id": session_id}
@@ -249,7 +260,11 @@ async def delete_chat_session(session_id: str):
 
 @app.get("/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str):
-    messages = get_messages(session_id)
+    try:
+        messages = get_messages(session_id)
+    except Exception as e:
+        logger.error("API → get session messages raised: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to get messages: {e}")
     return {"messages": messages, "session_id": session_id}
 
 
