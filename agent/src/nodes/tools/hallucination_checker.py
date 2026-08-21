@@ -29,10 +29,11 @@ HALLUCINATION_PROMPT = (
     "You are a hallucination checker for a company knowledge assistant.\n\n"
     "Given a generated answer and the source chunks it was based on, "
     "determine if the answer is grounded in the chunks.\n\n"
-    "Respond ONLY with a JSON object — no explanation, no markdown:\n"
+    "CRITICAL OUTPUT FORMAT: Respond with ONLY the raw JSON object below — "
+    "no reasoning, no explanation, no markdown fences, no text before or after it:\n"
     "{\n"
     '  "is_grounded": true | false,\n'
-    '  "reason": "one short sentence"\n'
+    '  "reason": "under 10 words"\n'
     "}\n\n"
     "Rules:\n"
     "- is_grounded = true if every claim in the answer can be found in the chunks\n"
@@ -40,7 +41,8 @@ HALLUCINATION_PROMPT = (
     "- Minor rewording is fine — judge the facts, not the exact words\n"
     "- If the answer says 'I could not find this' → always true (no claims made)\n"
     "- If the answer is a greeting or small talk → always true\n"
-    "- Be strict — any fabricated number, date, or policy detail = false"
+    "- Be strict — any fabricated number, date, or policy detail = false\n"
+    "- Do NOT think step by step and do NOT explain your reasoning — output the JSON immediately"
 )
 
 # ── Strict regeneration prompt ────────────────────────────────────────────────
@@ -120,7 +122,14 @@ def _check_grounding(answer: str, chunks: list) -> tuple:
             messages=[{"role": "user", "content": message}],
             model="openai/gpt-oss-120b",
             temperature=0.0,
-            max_tokens=80,
+            # 80, then 200, then 500 tokens all still got cut off — the model
+            # is a reasoning model and spends its budget on hidden reasoning
+            # before the JSON. Fixed at the source instead: response_format
+            # forces JSON-only output, reasoning_effort="low" keeps it from
+            # burning tokens on chain-of-thought for a small classification task.
+            max_tokens=500,
+            response_format={"type": "json_object"},
+            reasoning_effort="low",
         )
         clean  = response.strip().strip("```json").strip("```").strip()
         result = json.loads(clean)

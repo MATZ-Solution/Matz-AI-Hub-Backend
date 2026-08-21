@@ -30,6 +30,18 @@ def get_supabase():
     return _client
 
 
+def check_supabase_connection() -> bool:
+    """Pings Supabase on startup so connection issues surface immediately."""
+    try:
+        client = get_supabase()
+        client.table("sessions").select("id").limit(1).execute()
+        logger.info("Supabase → connected")
+        return True
+    except Exception as e:
+        logger.error("Supabase → connection failed: %s", e)
+        return False
+
+
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 def create_session(organization_id: str = "matz-demo-org") -> str:

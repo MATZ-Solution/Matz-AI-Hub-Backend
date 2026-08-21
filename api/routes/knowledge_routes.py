@@ -1,0 +1,51 @@
+"""api/routes/knowledge_routes.py — Knowledge page (documents, ingest, search)."""
+
+from fastapi import APIRouter, UploadFile, File, Form
+
+from api.controllers.knowledge_controller import (
+    get_documents_ctrl, delete_document_ctrl, update_document_ctrl,
+    ingest_document_ctrl, search_content_ctrl,
+)
+from api.schemas.schemas import DocumentsResponse, IngestResponse, SearchRequest, SearchResponse
+from api.config.settings import DEFAULT_ORGANIZATION_ID
+
+router = APIRouter(tags=["knowledge"])
+
+
+@router.get("/documents", response_model=DocumentsResponse)
+async def get_documents(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return await get_documents_ctrl(organization_id)
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(document_id: str, organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return await delete_document_ctrl(document_id, organization_id)
+
+
+@router.put("/documents/{document_id}")
+async def update_document(
+    document_id: str,
+    file: UploadFile = File(...),
+    document_title: str = Form(...),
+    collection_name: str = Form(...),
+    collection_id: str = Form(...),
+    organization_id: str = Form(default=DEFAULT_ORGANIZATION_ID),
+):
+    return await update_document_ctrl(document_id, file, document_title, collection_name, collection_id, organization_id)
+
+
+@router.post("/ingest", response_model=IngestResponse)
+async def ingest_document(
+    file: UploadFile = File(...),
+    document_title: str = Form(...),
+    collection_name: str = Form(...),
+    collection_id: str = Form(...),
+    organization_id: str = Form(default=DEFAULT_ORGANIZATION_ID),
+    document_id: str = Form(...),
+):
+    return await ingest_document_ctrl(file, document_title, collection_name, collection_id, organization_id, document_id)
+
+
+@router.post("/search", response_model=SearchResponse)
+async def search_content(request: SearchRequest):
+    return await search_content_ctrl(request)

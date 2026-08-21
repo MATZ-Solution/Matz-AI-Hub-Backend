@@ -48,29 +48,47 @@ def call_llm(
     model: str = "openai/gpt-oss-120b",
     temperature: float = 0.3,
     max_tokens: int = 1024,
+    response_format: dict | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """
     Send a conversation to the LLM and return the assistant reply.
 
     Args:
-        system_prompt: The system instruction string.
-        messages:      List of {"role": "user"|"assistant", "content": "..."}
-                       representing the conversation so far (oldest first).
-                       Do NOT include the system message here.
-        model:         Groq model ID.
-        temperature:   Sampling temperature (0 = deterministic).
-        max_tokens:    Maximum tokens in the reply.
+        system_prompt:     The system instruction string.
+        messages:          List of {"role": "user"|"assistant", "content": "..."}
+                            representing the conversation so far (oldest first).
+                            Do NOT include the system message here.
+        model:              Groq model ID.
+        temperature:        Sampling temperature (0 = deterministic).
+        max_tokens:         Maximum tokens in the reply.
+        response_format:    Optional, e.g. {"type": "json_object"} to force
+                             valid-JSON-only output (reasoning models on Groq
+                             can otherwise wander into free text before JSON).
+        reasoning_effort:   Optional, "low" | "medium" | "high" — only applies
+                             to reasoning-capable models (e.g. gpt-oss). Use
+                             "low" for small structured tasks (classification,
+                             JSON verdicts) so the model doesn't burn its
+                             token budget on hidden reasoning.
 
     Returns:
         The assistant's reply as a plain string.
     """
     client = _get_client()
     full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+    kwargs = {}
+    if response_format is not None:
+        kwargs["response_format"] = response_format
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
+
     response = client.chat.completions.create(
         model=model,
         messages=full_messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        **kwargs,
     )
     choice = response.choices[0]
     if choice.finish_reason == "length":
