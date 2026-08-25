@@ -24,7 +24,7 @@ from api.config.settings import (
 )
 from api.routes import (
     health_routes, overview_routes, assistant_routes,
-    knowledge_routes, collection_routes,
+    knowledge_routes, collection_routes, settings_routes,
 )
 
 
@@ -51,3 +51,4 @@ app.include_router(overview_routes.router)
 app.include_router(assistant_routes.router)
 app.include_router(knowledge_routes.router)
 app.include_router(collection_routes.router)
+app.include_router(settings_routes.router)

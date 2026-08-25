@@ -105,3 +105,60 @@ class StatsResponse(BaseModel):
     total_collections: int
     collections_breakdown: list[dict]
     organization_id: str
+
+# ── Settings: Workspace (General tab) ────────────────────────────────────────
+
+class WorkspaceSettings(BaseModel):
+    organization_id: str
+    name: str
+    url: str
+
+
+class WorkspaceSettingsUpdate(BaseModel):
+    name: str
+    url: str
+    organization_id: str = DEFAULT_ORGANIZATION_ID
+
+
+# ── Settings: Assistant config (Assistant tab) ───────────────────────────────
+
+class AssistantConfig(BaseModel):
+    organization_id: str
+    name: str
+    personality: str
+    instructions: str
+
+
+class AssistantConfigUpdate(BaseModel):
+    name: str
+    personality: str
+    instructions: str
+    organization_id: str = DEFAULT_ORGANIZATION_ID
+
+
+# ── Settings: Members ─────────────────────────────────────────────────────────
+
+class MemberItem(BaseModel):
+    id: str
+    organization_id: str
+    name: str
+    email: str
+    role: str
+    created_at: str
+
+
+class MemberCreate(BaseModel):
+    name: str
+    email: str
+    role: str = "Viewer"
+    organization_id: str = DEFAULT_ORGANIZATION_ID
+
+
+# ── Settings: Usage ───────────────────────────────────────────────────────────
+
+class UsageResponse(BaseModel):
+    documents_used: int
+    documents_limit: int
+    questions_used: int
+    questions_limit: int
+    organization_id: str
