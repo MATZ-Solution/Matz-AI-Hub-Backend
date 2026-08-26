@@ -24,10 +24,12 @@ GRADER_PROMPT = (
     "You are a relevance grader for a company knowledge assistant.\n\n"
     "Given a user question and a document chunk, score how relevant "
     "the chunk is for answering the question.\n\n"
-    "Respond ONLY with a JSON object — no explanation, no markdown:\n"
+    "CRITICAL OUTPUT FORMAT: Respond with ONLY the raw JSON object below — "
+    "no reasoning, no explanation, no markdown fences, no text before or after it. "
+    "Do NOT think step by step — output the JSON immediately:\n"
     "{\n"
     '  "score": 0.0 to 1.0,\n'
-    '  "reason": "one short sentence"\n'
+    '  "reason": "under 10 words"\n'
     "}\n\n"
     "Scoring guide:\n"
     "- 0.9 to 1.0: chunk directly answers the question\n"
@@ -153,7 +155,14 @@ def _grade_chunk(query: str, chunk: str) -> tuple:
             messages=[{"role": "user", "content": message}],
             model="openai/gpt-oss-120b",
             temperature=0.0,
-            max_tokens=80,
+            # Same fix as hallucination_checker: gpt-oss is a reasoning model
+            # and at max_tokens=80 it spent its whole budget on hidden
+            # reasoning, truncating the JSON. json.loads() then failed and
+            # EVERY chunk silently defaulted to 0.5 — meaning relevance
+            # filtering was effectively not running at all.
+            max_tokens=500,
+            response_format={"type": "json_object"},
+            reasoning_effort="low",
         )
         clean  = response.strip().strip("```json").strip("```").strip()
         result = json.loads(clean)

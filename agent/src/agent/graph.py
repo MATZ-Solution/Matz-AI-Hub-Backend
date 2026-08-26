@@ -128,4 +128,4 @@ def chat(user_query: str, chat_history: list = None) -> tuple:
         "citations":           [],
     }
     result = compiled_graph.invoke(initial_state)
-    return result["answer"], result["citations"], result["chat_history"]
+    return result["answer"], result["citations"], result["chat_history"], result.get("is_grounded", True)

@@ -162,3 +162,26 @@ class UsageResponse(BaseModel):
     questions_used: int
     questions_limit: int
     organization_id: str
+    
+
+class QuestionsOverTimePoint(BaseModel):
+    date: str
+    count: int
+ 
+ 
+class PopularCollection(BaseModel):
+    name: str
+    percent: float
+ 
+ 
+class AnalyticsSummary(BaseModel):
+    questions_asked: int
+    questions_asked_change_pct: float | None
+    successful_answers: int
+    success_rate_pct: float | None
+    avg_response_time_ms: float | None
+    avg_response_time_change_ms: float | None
+    questions_over_time: list[QuestionsOverTimePoint]
+    popular_collections: list[PopularCollection]
+    organization_id: str
+     

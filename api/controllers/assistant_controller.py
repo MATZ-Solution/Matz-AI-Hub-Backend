@@ -32,7 +32,7 @@ async def chat_ctrl(request: ChatRequest) -> ChatResponse:
     start_time = time.time()
 
     try:
-        answer, citations, _ = run_agent_chat(user_query=request.user_query, chat_history=request.chat_history)
+        answer, citations, _, is_grounded = run_agent_chat(user_query=request.user_query, chat_history=request.chat_history)
     except Exception as e:
         logger.error("Agent error: %s", str(e))
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
@@ -42,7 +42,12 @@ async def chat_ctrl(request: ChatRequest) -> ChatResponse:
     if request.session_id:
         try:
             save_message(request.session_id, "user", request.user_query, [])
-            save_message(request.session_id, "assistant", answer, citations)
+            # is_grounded + response_time_ms feed the Analytics page's
+            # "Successful answers" and "Avg. response time" metrics.
+            save_message(
+                request.session_id, "assistant", answer, citations,
+                is_grounded=is_grounded, response_time_ms=response_time_ms,
+            )
         except Exception as e:
             logger.warning("Supabase → failed to save messages: %s", e)
 
