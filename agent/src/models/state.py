@@ -15,6 +15,11 @@ class AgentState(TypedDict):
     is_emergency: bool
     answer: Optional[str]
 
+    # ── Workspace context ─────────────────────────────────────────────────────
+    organization_id: str             # which workspace this turn belongs to
+    assistant_config: Optional[dict] # name/personality/instructions from Settings
+    is_fixed_response: bool          # True = canned reply, skip hallucination check
+
     # ── Router fields ─────────────────────────────────────────────────────────
     query_type: Optional[str]        # "knowledge"|"small_talk"|"urgent"|"out_of_scope"|"injection"
     target_collection: Optional[str] # knowledge_collections.name in ERD

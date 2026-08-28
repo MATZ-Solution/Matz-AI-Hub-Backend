@@ -1,17 +1,16 @@
-"""api/routes/settings_routes.py — Settings page (workspace, assistant config, members, usage)."""
+"""api/routes/settings_routes.py — Settings page (workspace, assistant config, usage)."""
 
 from fastapi import APIRouter
 
 from api.controllers.settings_controller import (
     get_workspace_settings_ctrl, update_workspace_settings_ctrl,
     get_assistant_config_ctrl, update_assistant_config_ctrl,
-    get_members_ctrl, create_member_ctrl, delete_member_ctrl,
     get_usage_ctrl,
 )
 from api.schemas.schemas import (
     WorkspaceSettings, WorkspaceSettingsUpdate,
     AssistantConfig, AssistantConfigUpdate,
-    MemberCreate, UsageResponse,
+    UsageResponse,
 )
 from api.config.settings import DEFAULT_ORGANIZATION_ID
 
@@ -36,21 +35,6 @@ async def get_assistant_config_route(organization_id: str = DEFAULT_ORGANIZATION
 @router.put("/settings/assistant", response_model=AssistantConfig)
 async def update_assistant_config_route(request: AssistantConfigUpdate):
     return await update_assistant_config_ctrl(request)
-
-
-@router.get("/settings/members")
-async def get_members_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await get_members_ctrl(organization_id)
-
-
-@router.post("/settings/members")
-async def create_member_route(request: MemberCreate):
-    return await create_member_ctrl(request)
-
-
-@router.delete("/settings/members/{member_id}")
-async def delete_member_route(member_id: str):
-    return await delete_member_ctrl(member_id)
 
 
 @router.get("/settings/usage", response_model=UsageResponse)

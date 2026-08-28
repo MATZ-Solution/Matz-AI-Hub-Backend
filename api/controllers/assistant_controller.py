@@ -32,7 +32,11 @@ async def chat_ctrl(request: ChatRequest) -> ChatResponse:
     start_time = time.time()
 
     try:
-        answer, citations, _, is_grounded = run_agent_chat(user_query=request.user_query, chat_history=request.chat_history)
+        answer, citations, _, is_grounded = run_agent_chat(
+            user_query=request.user_query,
+            chat_history=request.chat_history,
+            organization_id=request.organization_id,
+        )
     except Exception as e:
         logger.error("Agent error: %s", str(e))
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")

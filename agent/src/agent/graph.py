@@ -24,6 +24,7 @@ from agent.src.nodes.tools.hallucination_checker import check_hallucination
 from agent.src.nodes.tools.citation_builder import build_citations
 from agent.src.nodes.retrieve import retrieve_context, retrieve_all
 from agent.src.nodes.generate import generate_answer
+from agent.src.utils.config_cache import get_cached_assistant_config
 
 
 def _decide_after_router(state: AgentState) -> str:
@@ -106,9 +107,17 @@ def build_graph():
 compiled_graph = build_graph()
 
 
-def chat(user_query: str, chat_history: list = None) -> tuple:
+def chat(
+    user_query: str,
+    chat_history: list = None,
+    organization_id: str = "matz-demo-org",
+) -> tuple:
     if chat_history is None:
         chat_history = []
+
+    # Loaded once per turn and passed through state, so every node sees the same
+    # config and there is at most one config lookup per message.
+    assistant_config = get_cached_assistant_config(organization_id)
 
     initial_state: AgentState = {
         "user_query":          user_query,
@@ -116,6 +125,9 @@ def chat(user_query: str, chat_history: list = None) -> tuple:
         "retrieved_docs":      [],
         "is_emergency":        False,
         "answer":              None,
+        "organization_id":     organization_id,
+        "assistant_config":    assistant_config,
+        "is_fixed_response":   False,
         "query_type":          None,
         "target_collection":   None,
         "search_strategy":     None,

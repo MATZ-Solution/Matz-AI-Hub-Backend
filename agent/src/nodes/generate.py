@@ -16,7 +16,9 @@ Cases handled:
 
 from agent.src.models.state import AgentState
 from agent.src.models.llm_client import call_llm
-from agent.src.prompts.system_prompt import SYSTEM_PROMPT, EMERGENCY_RESPONSE, INJECTION_RESPONSE
+from agent.src.prompts.system_prompt import (
+    build_system_prompt, EMERGENCY_RESPONSE, NOT_FOUND_RESPONSE, injection_response,
+)
 from agent.src.utils.summary import maybe_summarize
 from agent.src.utils.logger import logger
 
@@ -26,13 +28,21 @@ MAX_HISTORY_MESSAGES = 20
 def generate_answer(state: AgentState) -> AgentState:
     query_type = state.get("query_type", "knowledge")
 
+    # Built fresh each turn from the workspace's saved Settings → Assistant
+    # values, so admin changes take effect on the very next message.
+    config = state.get("assistant_config") or {}
+    system_prompt = build_system_prompt(config)
+
     # ── Case 0a: Injection ────────────────────────────────────────────────────
     if query_type == "injection":
-        answer = INJECTION_RESPONSE
+        answer = injection_response(config.get("name"))
         updated_history = _append_turn(
             state["chat_history"], state["user_query"], answer
         )
-        return {**state, "answer": answer, "chat_history": updated_history}
+        return {
+            **state, "answer": answer, "chat_history": updated_history,
+            "is_fixed_response": True,
+        }
 
     # ── Case 0b: Emergency ────────────────────────────────────────────────────
     if state["is_emergency"]:
@@ -40,7 +50,10 @@ def generate_answer(state: AgentState) -> AgentState:
         updated_history = _append_turn(
             state["chat_history"], state["user_query"], answer
         )
-        return {**state, "answer": answer, "chat_history": updated_history}
+        return {
+            **state, "answer": answer, "chat_history": updated_history,
+            "is_fixed_response": True,
+        }
 
     # ── Summarize history if too long ─────────────────────────────────────────
     # This runs before building messages_for_llm so the LLM always
@@ -66,7 +79,7 @@ def generate_answer(state: AgentState) -> AgentState:
             # Overview answers summarize every document in the knowledge base,
             # which can easily exceed the default 1024-token cap and get cut
             # off mid-list — give this case a much larger budget.
-            answer = call_llm(system_prompt=SYSTEM_PROMPT, messages=messages_for_llm, max_tokens=4096)
+            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm, max_tokens=4096)
         except RuntimeError as e:
             answer = f"[Setup needed] {e}"
 
@@ -83,7 +96,7 @@ def generate_answer(state: AgentState) -> AgentState:
         )
         messages_for_llm = history + [{"role": "user", "content": current_message}]
         try:
-            answer = call_llm(system_prompt=SYSTEM_PROMPT, messages=messages_for_llm)
+            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
         except RuntimeError as e:
             answer = f"[Setup needed] {e}"
 
@@ -92,7 +105,7 @@ def generate_answer(state: AgentState) -> AgentState:
         current_message = f"USER MESSAGE:\n{state['user_query']}"
         messages_for_llm = history + [{"role": "user", "content": current_message}]
         try:
-            answer = call_llm(system_prompt=SYSTEM_PROMPT, messages=messages_for_llm)
+            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
         except RuntimeError as e:
             answer = f"[Setup needed] {e}"
 
@@ -115,16 +128,20 @@ def generate_answer(state: AgentState) -> AgentState:
         )
         messages_for_llm = history + [{"role": "user", "content": current_message}]
         try:
-            answer = call_llm(system_prompt=SYSTEM_PROMPT, messages=messages_for_llm)
+            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
         except RuntimeError as e:
             answer = f"[Setup needed] {e}"
 
     else:
         # ── Case 5: No chunks + no history → fixed response, no LLM ─────────
-        answer = (
-            "I could not find this in the available documents. "
-            "Please check with the relevant team."
+        answer = NOT_FOUND_RESPONSE
+        updated_history = _append_turn(
+            state["chat_history"], state["user_query"], answer
         )
+        return {
+            **state, "answer": answer, "chat_history": updated_history,
+            "is_fixed_response": True,
+        }
 
     # Always append to ORIGINAL history (not summarized) to preserve full turns
     updated_history = _append_turn(

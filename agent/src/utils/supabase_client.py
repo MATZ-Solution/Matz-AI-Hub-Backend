@@ -4,9 +4,11 @@ src/utils/supabase_client.py
 Supabase client for chat history and collections persistence.
 
 Tables:
-  sessions    — one per conversation
-  messages    — user and assistant messages per session
-  collections — company knowledge collections
+  sessions           — one per conversation
+  messages           — user and assistant messages per session
+  collections        — company knowledge collections
+  workspace_settings — workspace identity (name)
+  assistant_config   — configurable assistant name/personality/instructions
 """
 
 import os
@@ -202,20 +204,19 @@ def get_workspace_settings(organization_id: str = "matz-demo-org") -> dict:
             .limit(1).execute()
         if result.data:
             return result.data[0]
-        return {"organization_id": organization_id, "name": "", "url": ""}
+        return {"organization_id": organization_id, "name": ""}
     except Exception as e:
         logger.error("Supabase → get_workspace_settings failed: %s", e)
-        return {"organization_id": organization_id, "name": "", "url": ""}
+        return {"organization_id": organization_id, "name": ""}
 
 
-def upsert_workspace_settings(organization_id: str, name: str, url: str) -> dict:
+def upsert_workspace_settings(organization_id: str, name: str) -> dict:
     """Creates or updates workspace settings for an organization."""
     try:
         client = get_supabase()
         result = client.table("workspace_settings").upsert({
             "organization_id": organization_id,
             "name": name,
-            "url": url,
         }).execute()
         logger.info("Supabase → workspace settings saved: %s", organization_id)
         return result.data[0]
@@ -268,51 +269,6 @@ def upsert_assistant_config(organization_id: str, name: str, personality: str, i
         logger.error("Supabase → upsert_assistant_config failed: %s", e)
         return None
 
-
-# ── Members ───────────────────────────────────────────────────────────────────
-
-def get_members(organization_id: str = "matz-demo-org") -> list:
-    """Returns all members for an organization, oldest first."""
-    try:
-        client = get_supabase()
-        result = client.table("members") \
-            .select("*") \
-            .eq("organization_id", organization_id) \
-            .order("created_at", desc=False) \
-            .execute()
-        return result.data
-    except Exception as e:
-        logger.error("Supabase → get_members failed: %s", e)
-        return []
-
-
-def create_member(organization_id: str, name: str, email: str, role: str = "Viewer") -> dict:
-    """Adds a member to an organization."""
-    try:
-        client = get_supabase()
-        result = client.table("members").insert({
-            "organization_id": organization_id,
-            "name": name,
-            "email": email,
-            "role": role,
-        }).execute()
-        logger.info("Supabase → member added: %s", email)
-        return result.data[0]
-    except Exception as e:
-        logger.error("Supabase → create_member failed: %s", e)
-        return None
-
-
-def delete_member(member_id: str) -> bool:
-    """Removes a member."""
-    try:
-        client = get_supabase()
-        client.table("members").delete().eq("id", member_id).execute()
-        logger.info("Supabase → member deleted: %s", member_id)
-        return True
-    except Exception as e:
-        logger.error("Supabase → delete_member failed: %s", e)
-        return False
 
 
 # ── Usage ─────────────────────────────────────────────────────────────────────

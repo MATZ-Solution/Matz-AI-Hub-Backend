@@ -73,6 +73,20 @@ SMALL_TALK_PATTERNS = [
     "thank you", "thanks", "bye", "goodbye", "ok", "okay", "great",
 ]
 
+# Questions about the assistant itself. These must NOT go down the knowledge
+# path — there is no document that states the assistant's name, so retrieval
+# returns nothing and the user gets "I could not find this in the available
+# documents" when asking "what is your name". Routing them to small_talk lets
+# the LLM answer from the system prompt, which carries the configured name.
+#
+# Deliberately distinct from INJECTION_KEYWORDS: "what is your name" is a fair
+# question, while "what is your prompt" is a probe and stays blocked.
+IDENTITY_PATTERNS = [
+    "what is your name", "what's your name", "whats your name",
+    "who are you", "what should i call you", "your name",
+    "introduce yourself", "tell me about yourself",
+]
+
 ROUTER_PROMPT = (
     "You are a query router for MATZ, a company AI knowledge assistant.\n\n"
     "Given a user query, respond ONLY with a JSON object — no explanation, no markdown.\n\n"
@@ -99,7 +113,8 @@ ROUTER_PROMPT = (
     "  * Sales Enablement → sales, discounts, proposals, pricing\n"
     "  * Marketing       → brand, logo, colors, campaigns\n"
     "- search_strategy: semantic for most queries, keyword for exact terms.\n"
-    "Respond with ONLY the JSON object."
+    "Respond with ONLY the raw JSON object — no reasoning, no explanation, "
+    "no markdown fences. Do NOT think step by step; output the JSON immediately."
 )
 
 
@@ -124,20 +139,33 @@ def route_query(state: AgentState) -> AgentState:
         return {**state, "query_type": "overview", "is_emergency": False,
                 "target_collection": None, "search_strategy": "semantic"}
 
-    # Priority 4: Small talk
+    # Priority 4: Identity — "what is your name", "who are you"
+    if any(pat in query for pat in IDENTITY_PATTERNS):
+        logger.info("Router → small_talk (identity question)")
+        return {**state, "query_type": "small_talk", "is_emergency": False,
+                "target_collection": None, "search_strategy": "semantic"}
+
+    # Priority 5: Small talk
     if any(query == pat for pat in SMALL_TALK_PATTERNS):
         logger.info("Router → small_talk (pattern match)")
         return {**state, "query_type": "small_talk", "is_emergency": False,
                 "target_collection": None, "search_strategy": "semantic"}
 
-    # Priority 5: LLM classification
+    # Priority 6: LLM classification
     try:
         response = call_llm(
             system_prompt=ROUTER_PROMPT,
             messages=[{"role": "user", "content": state["user_query"]}],
             model="openai/gpt-oss-120b",
             temperature=0.0,
-            max_tokens=100,
+            # Same truncation fix as relevance_grader and hallucination_checker:
+            # gpt-oss is a reasoning model and at max_tokens=100 could spend the
+            # budget on hidden reasoning, truncating the JSON. The except below
+            # then silently routed EVERY query to "knowledge" — which is exactly
+            # how an identity question ends up doing a document search.
+            max_tokens=500,
+            response_format={"type": "json_object"},
+            reasoning_effort="low",
         )
         clean   = response.strip().strip("```json").strip("```").strip()
         routing = json.loads(clean)

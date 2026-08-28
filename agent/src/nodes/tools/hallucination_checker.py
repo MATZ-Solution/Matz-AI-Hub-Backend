@@ -19,7 +19,6 @@ Maps to ERD:
 import json
 from agent.src.models.state import AgentState
 from agent.src.models.llm_client import call_llm
-from agent.src.prompts.system_prompt import SYSTEM_PROMPT
 from agent.src.utils.logger import logger
 
 MAX_GENERATION_ATTEMPTS = 2
@@ -74,12 +73,13 @@ def check_hallucination(state: AgentState) -> AgentState:
         logger.info("Hallucination checker → no chunks used, skipping check")
         return {**state, "is_grounded": True, "generation_attempts": attempts}
 
-    # Skip check for fixed responses
-    if answer in (
-        "I could not find this in the available documents. Please check with the relevant team.",
-        "This appears to be an urgent matter. Please contact your manager or the relevant department immediately. For IT security incidents, contact the security team right away.",
-        "I'm not able to share that information. I'm MATZ Assistant, here to help you find answers from company documents. How can I help you today?"
-    ):
+    # Skip check for fixed (non-LLM) responses.
+    # This used to compare `answer` against three hardcoded strings, which broke
+    # as soon as the assistant name became configurable — a renamed assistant
+    # produced an injection response that no longer matched the literal, so
+    # canned replies were being sent to the grounding check unnecessarily.
+    # generate.py now sets this flag directly instead.
+    if state.get("is_fixed_response"):
         logger.info("Hallucination checker → fixed response, skipping check")
         return {**state, "is_grounded": True, "generation_attempts": attempts}
 
@@ -122,14 +122,12 @@ def _check_grounding(answer: str, chunks: list) -> tuple:
             messages=[{"role": "user", "content": message}],
             model="openai/gpt-oss-120b",
             temperature=0.0,
-            # 80, then 200, then 500 tokens all still got cut off — the model
-            # is a reasoning model and spends its budget on hidden reasoning
-            # before the JSON. Fixed at the source instead: response_format
-            # forces JSON-only output, reasoning_effort="low" keeps it from
-            # burning tokens on chain-of-thought for a small classification task.
+            # 80, then 200 tokens were both too tight — gpt-oss-120b is a
+            # reasoning model and can spend tokens on hidden reasoning before
+            # the JSON, so a large context (many chunks) still got cut off
+            # mid-JSON, which made json.loads() below fail and silently
+            # skipped the check. Prompt now also forbids reasoning/preamble.
             max_tokens=500,
-            response_format={"type": "json_object"},
-            reasoning_effort="low",
         )
         clean  = response.strip().strip("```json").strip("```").strip()
         result = json.loads(clean)

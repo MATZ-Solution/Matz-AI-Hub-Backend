@@ -111,12 +111,10 @@ class StatsResponse(BaseModel):
 class WorkspaceSettings(BaseModel):
     organization_id: str
     name: str
-    url: str
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     name: str
-    url: str
     organization_id: str = DEFAULT_ORGANIZATION_ID
 
 
@@ -133,24 +131,6 @@ class AssistantConfigUpdate(BaseModel):
     name: str
     personality: str
     instructions: str
-    organization_id: str = DEFAULT_ORGANIZATION_ID
-
-
-# ── Settings: Members ─────────────────────────────────────────────────────────
-
-class MemberItem(BaseModel):
-    id: str
-    organization_id: str
-    name: str
-    email: str
-    role: str
-    created_at: str
-
-
-class MemberCreate(BaseModel):
-    name: str
-    email: str
-    role: str = "Viewer"
     organization_id: str = DEFAULT_ORGANIZATION_ID
 
 
@@ -184,4 +164,3 @@ class AnalyticsSummary(BaseModel):
     questions_over_time: list[QuestionsOverTimePoint]
     popular_collections: list[PopularCollection]
     organization_id: str
-     
