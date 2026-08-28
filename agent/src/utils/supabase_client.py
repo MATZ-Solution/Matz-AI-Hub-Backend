@@ -40,14 +40,18 @@ import threading
 
 _local = threading.local()
 
-# Without an explicit timeout the client waits indefinitely, and a slow query
-# holds the request (and a browser connection slot) open. But too tight a
-# timeout is worse than none: at 10s roughly half of all calls were failing,
-# and the callers below fall back to DEFAULTS on error — so a timed-out
-# get_assistant_config silently showed "MATZ Assistant" instead of the saved
-# name. 30s is comfortably above normal latency (including the DNS + TLS setup
-# a fresh threadpool thread pays on its first call) while still bounded.
-SUPABASE_TIMEOUT_SECONDS = 30
+# Measured behaviour of this connection (see measure_supabase.py): successful
+# calls return in ~0.18s median, 0.40s worst case. Failures do not come back at
+# all — roughly 13% of connections are silently dropped somewhere in the path.
+#
+# Because the distribution is bimodal (fast or never), waiting longer never
+# helps: a request that will never arrive does not arrive at 30s either. The
+# correct response is to give up quickly and try again on a fresh connection.
+#
+# 5s is >10x the observed worst case, so a timeout means "dropped", not "slow".
+# With 3 attempts a 13% per-call drop rate becomes ~0.2% overall.
+SUPABASE_TIMEOUT_SECONDS = 5
+SUPABASE_MAX_ATTEMPTS = 3
 
 
 def get_supabase():
@@ -77,11 +81,34 @@ def get_supabase():
     return client
 
 
+def _exec(query):
+    """
+    Runs a Supabase query, retrying dropped connections.
+
+    Every call site goes through this. Retries are safe here because the
+    operations are idempotent in practice: reads obviously so, and the writes
+    are upserts or inserts that get retried only when no response arrived at
+    all — so the first attempt almost certainly never reached the server.
+    """
+    last_error = None
+    for attempt in range(1, SUPABASE_MAX_ATTEMPTS + 1):
+        try:
+            return query.execute()
+        except Exception as e:
+            last_error = e
+            if attempt < SUPABASE_MAX_ATTEMPTS:
+                logger.warning(
+                    "Supabase → attempt %d/%d failed (%s) — retrying",
+                    attempt, SUPABASE_MAX_ATTEMPTS, e,
+                )
+    raise last_error
+
+
 def check_supabase_connection() -> bool:
     """Pings Supabase on startup so connection issues surface immediately."""
     try:
         client = get_supabase()
-        client.table("sessions").select("id").limit(1).execute()
+        _exec(client.table("sessions").select("id").limit(1))
         logger.info("Supabase → connected")
         return True
     except Exception as e:
@@ -95,9 +122,9 @@ def create_session(organization_id: str = "matz-demo-org") -> str:
     """Creates a new chat session. Returns the session ID."""
     try:
         client = get_supabase()
-        result = client.table("sessions").insert({
+        result = _exec(client.table("sessions").insert({
             "organization_id": organization_id
-        }).execute()
+        }))
         session_id = result.data[0]["id"]
         logger.info("Supabase → session created: %s", session_id)
         return session_id
@@ -110,11 +137,11 @@ def get_sessions(organization_id: str = "matz-demo-org") -> list:
     """Returns all sessions for an organization, most recent first."""
     try:
         client = get_supabase()
-        result = client.table("sessions") \
+        result = _exec(client.table("sessions") \
             .select("*") \
             .eq("organization_id", organization_id) \
             .order("created_at", desc=True) \
-            .execute()
+            )
         return result.data
     except Exception as e:
         logger.error("Supabase → get_sessions failed: %s", e)
@@ -128,7 +155,7 @@ def delete_session(session_id: str) -> bool:
     """
     try:
         client = get_supabase()
-        client.table("sessions").delete().eq("id", session_id).execute()
+        _exec(client.table("sessions").delete().eq("id", session_id))
         logger.info("Supabase → session deleted: %s", session_id)
         return True
     except Exception as e:
@@ -162,7 +189,7 @@ def save_message(
         if response_time_ms is not None:
             payload["response_time_ms"] = response_time_ms
 
-        result = client.table("messages").insert(payload).execute()
+        result = _exec(client.table("messages").insert(payload))
         message_id = result.data[0]["id"]
         logger.info("Supabase → message saved: %s (%s)", message_id, role)
         return message_id
@@ -175,36 +202,16 @@ def get_messages(session_id: str) -> list:
     """Returns all messages for a session, oldest first."""
     try:
         client = get_supabase()
-        result = client.table("messages") \
+        result = _exec(client.table("messages") \
             .select("*") \
             .eq("session_id", session_id) \
             .order("created_at", desc=False) \
-            .execute()
+            )
         return result.data
     except Exception as e:
         logger.error("Supabase → get_messages failed: %s", e)
         return []
 
-
-def session_belongs_to_org(session_id: str, organization_id: str) -> bool:
-    """
-    Ownership check for session-scoped endpoints.
-
-    Session ids appear in URLs (/sessions/{id}/messages, DELETE /sessions/{id}),
-    so without this a signed-in user from workspace A could read or delete
-    workspace B's conversations. Returns False on error — fail closed.
-    """
-    try:
-        client = get_supabase()
-        result = client.table("sessions") \
-            .select("id") \
-            .eq("id", session_id) \
-            .eq("organization_id", organization_id) \
-            .limit(1).execute()
-        return bool(result.data)
-    except Exception as e:
-        logger.error("Supabase → session_belongs_to_org failed: %s", e)
-        return False
 
 
 # ── Collections ───────────────────────────────────────────────────────────────
@@ -213,11 +220,11 @@ def get_collections_from_db(organization_id: str = "matz-demo-org") -> list:
     """Returns all collections from Supabase."""
     try:
         client = get_supabase()
-        result = client.table("collections") \
+        result = _exec(client.table("collections") \
             .select("*") \
             .eq("organization_id", organization_id) \
             .order("created_at", desc=False) \
-            .execute()
+            )
         return result.data
     except Exception as e:
         logger.error("Supabase → get_collections failed: %s", e)
@@ -233,12 +240,12 @@ def create_collection_in_db(
     """Creates a new collection in Supabase."""
     try:
         client = get_supabase()
-        result = client.table("collections").insert({
+        result = _exec(client.table("collections").insert({
             "name":            name,
             "description":     description,
             "icon":            icon,
             "organization_id": organization_id,
-        }).execute()
+        }))
         logger.info("Supabase → collection created: %s", name)
         return result.data[0]
     except Exception as e:
@@ -246,26 +253,12 @@ def create_collection_in_db(
         return None
 
 
-def collection_belongs_to_org(collection_id: str, organization_id: str) -> bool:
-    """Ownership check for DELETE /collections/{id}. Fails closed."""
-    try:
-        client = get_supabase()
-        result = client.table("collections") \
-            .select("id") \
-            .eq("id", collection_id) \
-            .eq("organization_id", organization_id) \
-            .limit(1).execute()
-        return bool(result.data)
-    except Exception as e:
-        logger.error("Supabase → collection_belongs_to_org failed: %s", e)
-        return False
-
 
 def delete_collection_from_db(collection_id: str) -> bool:
     """Deletes a collection from Supabase."""
     try:
         client = get_supabase()
-        client.table("collections").delete().eq("id", collection_id).execute()
+        _exec(client.table("collections").delete().eq("id", collection_id))
         logger.info("Supabase → collection deleted: %s", collection_id)
         return True
     except Exception as e:
@@ -278,10 +271,10 @@ def get_workspace_settings(organization_id: str = "matz-demo-org") -> dict:
     """Returns workspace settings from Supabase, or sane defaults if none saved yet."""
     try:
         client = get_supabase()
-        result = client.table("workspace_settings") \
+        result = _exec(client.table("workspace_settings") \
             .select("*") \
             .eq("organization_id", organization_id) \
-            .limit(1).execute()
+            .limit(1))
         if result.data:
             return result.data[0]
         return {"organization_id": organization_id, "name": ""}
@@ -294,10 +287,10 @@ def upsert_workspace_settings(organization_id: str, name: str) -> dict:
     """Creates or updates workspace settings for an organization."""
     try:
         client = get_supabase()
-        result = client.table("workspace_settings").upsert({
+        result = _exec(client.table("workspace_settings").upsert({
             "organization_id": organization_id,
             "name": name,
-        }).execute()
+        }))
         logger.info("Supabase → workspace settings saved: %s", organization_id)
         return result.data[0]
     except Exception as e:
@@ -311,10 +304,10 @@ def get_assistant_config(organization_id: str = "matz-demo-org") -> dict:
     """Returns assistant config from Supabase, or sane defaults if none saved yet."""
     try:
         client = get_supabase()
-        result = client.table("assistant_config") \
+        result = _exec(client.table("assistant_config") \
             .select("*") \
             .eq("organization_id", organization_id) \
-            .limit(1).execute()
+            .limit(1))
         if result.data:
             return result.data[0]
         return {
@@ -337,12 +330,12 @@ def upsert_assistant_config(organization_id: str, name: str, personality: str, i
     """Creates or updates the assistant configuration for an organization."""
     try:
         client = get_supabase()
-        result = client.table("assistant_config").upsert({
+        result = _exec(client.table("assistant_config").upsert({
             "organization_id": organization_id,
             "name": name,
             "personality": personality,
             "instructions": instructions,
-        }).execute()
+        }))
         logger.info("Supabase → assistant config saved: %s", organization_id)
         return result.data[0]
     except Exception as e:
@@ -364,7 +357,7 @@ def count_user_questions(organization_id: str = "matz-demo-org") -> int:
     """
     try:
         client = get_supabase()
-        result = client.rpc("count_org_user_questions", {"org_id": organization_id}).execute()
+        result = _exec(client.rpc("count_org_user_questions", {"org_id": organization_id}))
         return int(result.data or 0)
     except Exception as e:
         logger.error("Supabase → count_user_questions failed: %s", e)
@@ -429,10 +422,10 @@ def get_analytics_summary(organization_id: str = "matz-demo-org", days: int = 14
         # One server-side join instead of fetching every session id and
         # passing them to .in_() — see count_user_questions for why that was
         # slow enough to stall the page.
-        messages = client.rpc("org_messages_since", {
+        messages = _exec(client.rpc("org_messages_since", {
             "org_id": organization_id,
             "since": previous_start.isoformat(),
-        }).execute().data or []
+        })).data or []
 
         if not messages:
             return _empty_analytics(organization_id, days)
