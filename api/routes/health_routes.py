@@ -8,10 +8,10 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/")
-async def root():
+def root():
     return {"message": f"{APP_TITLE} API", "docs": "/docs"}
 
 
 @router.get("/health")
-async def health_check():
+def health_check():
     return {"status": "healthy", "service": APP_TITLE, "version": APP_VERSION}

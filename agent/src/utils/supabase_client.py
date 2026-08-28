@@ -21,16 +21,60 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-_client = None
+# ── Client ────────────────────────────────────────────────────────────────────
+#
+# One client PER THREAD, not one shared globally.
+#
+# The API handlers are plain `def`, so FastAPI runs them in a threadpool and
+# several can hit Supabase at the same moment. A single shared client means
+# several threads sharing one httpx connection pool, which on Windows surfaces
+# as "[WinError 10035] A non-blocking socket operation could not be completed
+# immediately" and spurious read timeouts. threading.local() gives each worker
+# thread its own client and its own connections, so requests never interleave
+# on the same socket.
+#
+# FastAPI's threadpool is bounded (40 threads by default), so this creates at
+# most that many clients for the life of the process.
+
+import threading
+
+_local = threading.local()
+
+# Without an explicit timeout the client waits indefinitely, and a slow query
+# holds the request (and a browser connection slot) open. But too tight a
+# timeout is worse than none: at 10s roughly half of all calls were failing,
+# and the callers below fall back to DEFAULTS on error — so a timed-out
+# get_assistant_config silently showed "MATZ Assistant" instead of the saved
+# name. 30s is comfortably above normal latency (including the DNS + TLS setup
+# a fresh threadpool thread pays on its first call) while still bounded.
+SUPABASE_TIMEOUT_SECONDS = 30
 
 
 def get_supabase():
-    """Lazy singleton Supabase client."""
-    global _client
-    if _client is None:
-        from supabase import create_client
-        _client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _client
+    """Returns this thread's Supabase client, creating it on first use."""
+    client = getattr(_local, "client", None)
+    if client is not None:
+        return client
+
+    from supabase import create_client
+    try:
+        from supabase import ClientOptions
+        client = create_client(
+            SUPABASE_URL,
+            SUPABASE_KEY,
+            options=ClientOptions(
+                postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS,
+                storage_client_timeout=SUPABASE_TIMEOUT_SECONDS,
+            ),
+        )
+    except ImportError:
+        # Older supabase-py has no ClientOptions — fall back rather than
+        # breaking startup.
+        logger.warning("supabase.ClientOptions unavailable — no client timeout set")
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    _local.client = client
+    return client
 
 
 def check_supabase_connection() -> bool:
@@ -142,6 +186,27 @@ def get_messages(session_id: str) -> list:
         return []
 
 
+def session_belongs_to_org(session_id: str, organization_id: str) -> bool:
+    """
+    Ownership check for session-scoped endpoints.
+
+    Session ids appear in URLs (/sessions/{id}/messages, DELETE /sessions/{id}),
+    so without this a signed-in user from workspace A could read or delete
+    workspace B's conversations. Returns False on error — fail closed.
+    """
+    try:
+        client = get_supabase()
+        result = client.table("sessions") \
+            .select("id") \
+            .eq("id", session_id) \
+            .eq("organization_id", organization_id) \
+            .limit(1).execute()
+        return bool(result.data)
+    except Exception as e:
+        logger.error("Supabase → session_belongs_to_org failed: %s", e)
+        return False
+
+
 # ── Collections ───────────────────────────────────────────────────────────────
 
 def get_collections_from_db(organization_id: str = "matz-demo-org") -> list:
@@ -179,6 +244,21 @@ def create_collection_in_db(
     except Exception as e:
         logger.error("Supabase → create_collection failed: %s", e)
         return None
+
+
+def collection_belongs_to_org(collection_id: str, organization_id: str) -> bool:
+    """Ownership check for DELETE /collections/{id}. Fails closed."""
+    try:
+        client = get_supabase()
+        result = client.table("collections") \
+            .select("id") \
+            .eq("id", collection_id) \
+            .eq("organization_id", organization_id) \
+            .limit(1).execute()
+        return bool(result.data)
+    except Exception as e:
+        logger.error("Supabase → collection_belongs_to_org failed: %s", e)
+        return False
 
 
 def delete_collection_from_db(collection_id: str) -> bool:
@@ -274,21 +354,18 @@ def upsert_assistant_config(organization_id: str, name: str, personality: str, i
 # ── Usage ─────────────────────────────────────────────────────────────────────
 
 def count_user_questions(organization_id: str = "matz-demo-org") -> int:
-    """Counts user messages across all sessions for an organization."""
+    """
+    Counts user messages across all sessions for an organization.
+
+    Uses a database-side join (see perf_fix.sql). The previous version fetched
+    every session id and passed them to .in_() — PostgREST serialises that into
+    the URL, so at a few hundred sessions the request took minutes and held a
+    connection open the whole time.
+    """
     try:
         client = get_supabase()
-        session_ids = [
-            s["id"] for s in
-            client.table("sessions").select("id").eq("organization_id", organization_id).execute().data
-        ]
-        if not session_ids:
-            return 0
-        result = client.table("messages") \
-            .select("id", count="exact") \
-            .in_("session_id", session_ids) \
-            .eq("role", "user") \
-            .execute()
-        return result.count or 0
+        result = client.rpc("count_org_user_questions", {"org_id": organization_id}).execute()
+        return int(result.data or 0)
     except Exception as e:
         logger.error("Supabase → count_user_questions failed: %s", e)
         return 0
@@ -349,22 +426,16 @@ def get_analytics_summary(organization_id: str = "matz-demo-org", days: int = 14
         current_start = now - timedelta(days=days)
         previous_start = now - timedelta(days=days * 2)
 
-        sessions = client.table("sessions") \
-            .select("id") \
-            .eq("organization_id", organization_id) \
-            .gte("created_at", previous_start.isoformat()) \
-            .execute().data
-        session_ids = [s["id"] for s in sessions]
+        # One server-side join instead of fetching every session id and
+        # passing them to .in_() — see count_user_questions for why that was
+        # slow enough to stall the page.
+        messages = client.rpc("org_messages_since", {
+            "org_id": organization_id,
+            "since": previous_start.isoformat(),
+        }).execute().data or []
 
-        if not session_ids:
+        if not messages:
             return _empty_analytics(organization_id, days)
-
-        messages = client.table("messages") \
-            .select("session_id, role, citations, is_grounded, response_time_ms, created_at") \
-            .in_("session_id", session_ids) \
-            .gte("created_at", previous_start.isoformat()) \
-            .order("created_at", desc=False) \
-            .execute().data
 
         def in_range(msg, start, end):
             ts = _parse_ts(msg["created_at"])

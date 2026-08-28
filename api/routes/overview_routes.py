@@ -10,5 +10,5 @@ router = APIRouter(tags=["overview"])
 
 
 @router.get("/stats", response_model=StatsResponse)
-async def get_stats(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await get_stats_ctrl(organization_id)
+def get_stats(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return get_stats_ctrl(organization_id)

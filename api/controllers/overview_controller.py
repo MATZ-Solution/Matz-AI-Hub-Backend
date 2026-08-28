@@ -10,10 +10,9 @@ from agent.src.utils.logger import logger
 from agent.src.utils.supabase_client import get_collections_from_db
 from api.helpers.qdrant_helper import scroll_all_points
 from api.schemas.schemas import StatsResponse
-from api.config.settings import DEFAULT_ORGANIZATION_ID
 
 
-async def get_stats_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> StatsResponse:
+def get_stats_ctrl(organization_id: str) -> StatsResponse:
     try:
         all_points = scroll_all_points(organization_id)
         doc_ids: set = set()

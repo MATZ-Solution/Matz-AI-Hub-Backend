@@ -13,10 +13,9 @@ from agent.src.utils.supabase_client import (
 )
 from api.helpers.qdrant_helper import scroll_all_points
 from api.schemas.schemas import CollectionCreate
-from api.config.settings import DEFAULT_ORGANIZATION_ID
 
 
-async def get_collections_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> dict:
+def get_collections_ctrl(organization_id: str) -> dict:
     """Returns collections from Supabase merged with real document counts from Qdrant."""
     try:
         db_collections = get_collections_from_db(organization_id)
@@ -59,7 +58,7 @@ async def get_collections_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def create_collection_ctrl(request: CollectionCreate) -> dict:
+def create_collection_ctrl(request: CollectionCreate, organization_id: str) -> dict:
     if not request.name.strip():
         raise HTTPException(status_code=400, detail="Collection name cannot be empty")
 
@@ -67,7 +66,7 @@ async def create_collection_ctrl(request: CollectionCreate) -> dict:
         name=request.name,
         description=request.description,
         icon=request.icon,
-        organization_id=request.organization_id,
+        organization_id=organization_id,
     )
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create collection")
@@ -76,7 +75,7 @@ async def create_collection_ctrl(request: CollectionCreate) -> dict:
     return {"success": True, "collection": result}
 
 
-async def delete_collection_ctrl(collection_id: str) -> dict:
+def delete_collection_ctrl(collection_id: str, organization_id: str) -> dict:
     success = delete_collection_from_db(collection_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete collection")

@@ -12,15 +12,21 @@ router = APIRouter(tags=["collections"])
 
 
 @router.get("/collections")
-async def get_collections(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await get_collections_ctrl(organization_id)
+def get_collections(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return get_collections_ctrl(organization_id)
 
 
 @router.post("/collections")
-async def create_new_collection(request: CollectionCreate):
-    return await create_collection_ctrl(request)
+def create_new_collection(
+    request: CollectionCreate,
+    organization_id: str = DEFAULT_ORGANIZATION_ID,
+):
+    return create_collection_ctrl(request, organization_id)
 
 
 @router.delete("/collections/{collection_id}")
-async def delete_collection(collection_id: str):
-    return await delete_collection_ctrl(collection_id)
+def delete_collection(
+    collection_id: str,
+    organization_id: str = DEFAULT_ORGANIZATION_ID,
+):
+    return delete_collection_ctrl(collection_id, organization_id)

@@ -12,26 +12,31 @@ from api.config.settings import DEFAULT_ORGANIZATION_ID
 router = APIRouter(tags=["assistant"])
 
 
+# Handlers are plain `def`, not `async def`: they call supabase-py and
+# qdrant-client, which are synchronous. Inside `async def` those block the
+# event loop and stall every other request; as `def`, FastAPI runs them in a
+# threadpool where blocking is safe.
+
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
-    return await chat_ctrl(request)
+def chat_endpoint(request: ChatRequest, organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return chat_ctrl(request, organization_id)
 
 
 @router.post("/sessions")
-async def create_chat_session(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await create_session_ctrl(organization_id)
+def create_chat_session(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return create_session_ctrl(organization_id)
 
 
 @router.get("/sessions")
-async def list_sessions(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await list_sessions_ctrl(organization_id)
+def list_sessions(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return list_sessions_ctrl(organization_id)
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_chat_session(session_id: str):
-    return await delete_session_ctrl(session_id)
+def delete_chat_session(session_id: str, organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return delete_session_ctrl(session_id, organization_id)
 
 
 @router.get("/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str):
-    return await get_session_messages_ctrl(session_id)
+def get_session_messages(session_id: str, organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return get_session_messages_ctrl(session_id, organization_id)

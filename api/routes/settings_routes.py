@@ -18,25 +18,31 @@ router = APIRouter(tags=["settings"])
 
 
 @router.get("/settings/workspace", response_model=WorkspaceSettings)
-async def get_workspace_settings_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await get_workspace_settings_ctrl(organization_id)
+def get_workspace_settings_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return get_workspace_settings_ctrl(organization_id)
 
 
 @router.put("/settings/workspace", response_model=WorkspaceSettings)
-async def update_workspace_settings_route(request: WorkspaceSettingsUpdate):
-    return await update_workspace_settings_ctrl(request)
+def update_workspace_settings_route(
+    request: WorkspaceSettingsUpdate,
+    organization_id: str = DEFAULT_ORGANIZATION_ID,
+):
+    return update_workspace_settings_ctrl(request, organization_id)
 
 
 @router.get("/settings/assistant", response_model=AssistantConfig)
-async def get_assistant_config_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await get_assistant_config_ctrl(organization_id)
+def get_assistant_config_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return get_assistant_config_ctrl(organization_id)
 
 
 @router.put("/settings/assistant", response_model=AssistantConfig)
-async def update_assistant_config_route(request: AssistantConfigUpdate):
-    return await update_assistant_config_ctrl(request)
+def update_assistant_config_route(
+    request: AssistantConfigUpdate,
+    organization_id: str = DEFAULT_ORGANIZATION_ID,
+):
+    return update_assistant_config_ctrl(request, organization_id)
 
 
 @router.get("/settings/usage", response_model=UsageResponse)
-async def get_usage_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return await get_usage_ctrl(organization_id)
+def get_usage_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
+    return get_usage_ctrl(organization_id)

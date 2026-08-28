@@ -10,14 +10,13 @@ from fastapi import HTTPException
 
 from agent.src.utils.logger import logger
 from agent.src.utils.supabase_client import get_analytics_summary
-from api.config.settings import DEFAULT_ORGANIZATION_ID
 from api.schemas.schemas import AnalyticsSummary
 
 DEFAULT_LOOKBACK_DAYS = 14
 
 
-async def get_analytics_ctrl(
-    organization_id: str = DEFAULT_ORGANIZATION_ID,
+def get_analytics_ctrl(
+    organization_id: str,
     days: int = DEFAULT_LOOKBACK_DAYS,
 ) -> AnalyticsSummary:
     try:

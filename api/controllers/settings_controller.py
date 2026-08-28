@@ -15,7 +15,6 @@ from agent.src.utils.supabase_client import (
 )
 from agent.src.utils.config_cache import invalidate_assistant_config
 from api.helpers.qdrant_helper import scroll_all_points
-from api.config.settings import DEFAULT_ORGANIZATION_ID
 from api.schemas.schemas import (
     WorkspaceSettings, WorkspaceSettingsUpdate,
     AssistantConfig, AssistantConfigUpdate,
@@ -30,47 +29,47 @@ QUESTIONS_LIMIT = 10000
 
 # ── General (workspace) ──────────────────────────────────────────────────────
 
-async def get_workspace_settings_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> WorkspaceSettings:
+def get_workspace_settings_ctrl(organization_id: str) -> WorkspaceSettings:
     data = get_workspace_settings(organization_id)
     return WorkspaceSettings(**data)
 
 
-async def update_workspace_settings_ctrl(request: WorkspaceSettingsUpdate) -> WorkspaceSettings:
+def update_workspace_settings_ctrl(request: WorkspaceSettingsUpdate, organization_id: str) -> WorkspaceSettings:
     if not request.name.strip():
         raise HTTPException(status_code=400, detail="Workspace name cannot be empty")
-    result = upsert_workspace_settings(request.organization_id, request.name)
+    result = upsert_workspace_settings(organization_id, request.name)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to save workspace settings")
-    logger.info("API → workspace settings updated: %s", request.organization_id)
+    logger.info("API → workspace settings updated: %s", organization_id)
     return WorkspaceSettings(**result)
 
 
 # ── Assistant config ──────────────────────────────────────────────────────────
 
-async def get_assistant_config_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> AssistantConfig:
+def get_assistant_config_ctrl(organization_id: str) -> AssistantConfig:
     data = get_assistant_config(organization_id)
     return AssistantConfig(**data)
 
 
-async def update_assistant_config_ctrl(request: AssistantConfigUpdate) -> AssistantConfig:
+def update_assistant_config_ctrl(request: AssistantConfigUpdate, organization_id: str) -> AssistantConfig:
     if not request.name.strip():
         raise HTTPException(status_code=400, detail="Assistant name cannot be empty")
-    result = upsert_assistant_config(request.organization_id, request.name, request.personality, request.instructions)
+    result = upsert_assistant_config(organization_id, request.name, request.personality, request.instructions)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to save assistant config")
 
     # Drop the cached copy so the very next chat message builds its system
     # prompt from these new values instead of the stale ones.
-    invalidate_assistant_config(request.organization_id)
+    invalidate_assistant_config(organization_id)
 
-    logger.info("API → assistant config updated: %s", request.organization_id)
+    logger.info("API → assistant config updated: %s", organization_id)
     return AssistantConfig(**result)
 
 
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
 
-async def get_usage_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> UsageResponse:
+def get_usage_ctrl(organization_id: str) -> UsageResponse:
     try:
         all_points = scroll_all_points(organization_id)
         doc_ids = {p.payload.get("document_id", "unknown") for p in all_points}

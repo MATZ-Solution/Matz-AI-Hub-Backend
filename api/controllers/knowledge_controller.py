@@ -5,7 +5,7 @@ Backs the Knowledge page: documents list/delete/update, ingestion
 pipeline, and semantic search.
 """
 
-from fastapi import HTTPException, UploadFile, File, Form
+from fastapi import HTTPException, UploadFile
 
 from agent.src.utils.logger import logger
 from agent.data.pipeline.processor import extract_text
@@ -13,14 +13,14 @@ from agent.data.pipeline.chunker import chunk_text
 from agent.data.pipeline.ingestor import ingest_chunks
 from api.helpers.qdrant_helper import get_qdrant_client, scroll_all_points
 from api.helpers.file_helper import is_allowed_extension, save_upload_to_tempfile, cleanup_tempfile
-from api.config.settings import DEFAULT_ORGANIZATION_ID, QDRANT_COLLECTION_NAME, SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
+from api.config.settings import QDRANT_COLLECTION_NAME, SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
 from api.schemas.schemas import (
     DocumentsResponse, DocumentItem, IngestResponse,
     SearchRequest, SearchResponse, SearchResult,
 )
 
 
-async def get_documents_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> DocumentsResponse:
+def get_documents_ctrl(organization_id: str) -> DocumentsResponse:
     try:
         all_points = scroll_all_points(organization_id)
         docs_map: dict = {}
@@ -46,7 +46,7 @@ async def get_documents_ctrl(organization_id: str = DEFAULT_ORGANIZATION_ID) -> 
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def delete_document_ctrl(document_id: str, organization_id: str = DEFAULT_ORGANIZATION_ID) -> dict:
+def delete_document_ctrl(document_id: str, organization_id: str) -> dict:
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
         client = get_qdrant_client()
@@ -61,13 +61,13 @@ async def delete_document_ctrl(document_id: str, organization_id: str = DEFAULT_
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def update_document_ctrl(
+def update_document_ctrl(
     document_id: str,
-    file: UploadFile = File(...),
-    document_title: str = Form(...),
-    collection_name: str = Form(...),
-    collection_id: str = Form(...),
-    organization_id: str = Form(default=DEFAULT_ORGANIZATION_ID),
+    file: UploadFile,
+    document_title: str,
+    collection_name: str,
+    collection_id: str,
+    organization_id: str,
 ) -> dict:
     logger.info("API → /documents/%s update", document_id)
     if not is_allowed_extension(file.filename):
@@ -99,13 +99,13 @@ async def update_document_ctrl(
         cleanup_tempfile(tmp_path)
 
 
-async def ingest_document_ctrl(
-    file: UploadFile = File(...),
-    document_title: str = Form(...),
-    collection_name: str = Form(...),
-    collection_id: str = Form(...),
-    organization_id: str = Form(default=DEFAULT_ORGANIZATION_ID),
-    document_id: str = Form(...),
+def ingest_document_ctrl(
+    file: UploadFile,
+    document_title: str,
+    collection_name: str,
+    collection_id: str,
+    organization_id: str,
+    document_id: str,
 ) -> IngestResponse:
     logger.info("API → /ingest | doc: %s | org: %s", document_title, organization_id)
     if not is_allowed_extension(file.filename):
@@ -132,14 +132,14 @@ async def ingest_document_ctrl(
         cleanup_tempfile(tmp_path)
 
 
-async def search_content_ctrl(request: SearchRequest) -> SearchResponse:
+def search_content_ctrl(request: SearchRequest, organization_id: str) -> SearchResponse:
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty")
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
         from agent.src.models.embeddings import embed_text
         client = get_qdrant_client()
-        must_conditions = [FieldCondition(key="organization_id", match=MatchValue(value=request.organization_id))]
+        must_conditions = [FieldCondition(key="organization_id", match=MatchValue(value=organization_id))]
         if request.collection_name:
             must_conditions.append(FieldCondition(key="collection_name", match=MatchValue(value=request.collection_name)))
         query_vector = embed_text(request.query)

@@ -10,8 +10,8 @@ router = APIRouter(tags=["analytics"])
 
 
 @router.get("/analytics/summary", response_model=AnalyticsSummary)
-async def get_analytics_summary_route(
+def get_analytics_summary_route(
     organization_id: str = DEFAULT_ORGANIZATION_ID,
     days: int = DEFAULT_LOOKBACK_DAYS,
 ):
-    return await get_analytics_ctrl(organization_id, days)
+    return get_analytics_ctrl(organization_id, days)
