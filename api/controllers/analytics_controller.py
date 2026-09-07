@@ -8,8 +8,8 @@ agent/src/utils/supabase_client.py for the actual query logic).
 
 from fastapi import HTTPException
 
-from agent.src.utils.logger import logger
-from agent.src.utils.supabase_client import get_analytics_summary
+from agents.langgraph_agent.utils.utils import logger
+from agents.langgraph_agent.utils.utils import get_analytics_summary
 from api.schemas.schemas import AnalyticsSummary
 
 DEFAULT_LOOKBACK_DAYS = 14

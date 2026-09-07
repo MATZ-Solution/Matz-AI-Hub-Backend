@@ -7,13 +7,13 @@ and Usage — all previously hardcoded on the frontend.
 
 from fastapi import HTTPException
 
-from agent.src.utils.logger import logger
-from agent.src.utils.supabase_client import (
+from agents.langgraph_agent.utils.utils import logger
+from agents.langgraph_agent.utils.utils import (
     get_workspace_settings, upsert_workspace_settings,
     get_assistant_config, upsert_assistant_config,
     count_user_questions,
 )
-from agent.src.utils.config_cache import invalidate_assistant_config
+from agents.langgraph_agent.utils.utils import invalidate_assistant_config
 from api.helpers.qdrant_helper import scroll_all_points
 from api.schemas.schemas import (
     WorkspaceSettings, WorkspaceSettingsUpdate,

@@ -7,10 +7,10 @@ pipeline, and semantic search.
 
 from fastapi import HTTPException, UploadFile
 
-from agent.src.utils.logger import logger
-from agent.data.pipeline.processor import extract_text
-from agent.data.pipeline.chunker import chunk_text
-from agent.data.pipeline.ingestor import ingest_chunks
+from agents.langgraph_agent.utils.utils import logger
+from data.pipeline.processor import extract_text
+from data.pipeline.chunker import chunk_text
+from data.pipeline.ingestor import ingest_chunks
 from api.helpers.qdrant_helper import get_qdrant_client, scroll_all_points
 from api.helpers.file_helper import is_allowed_extension, save_upload_to_tempfile, cleanup_tempfile
 from api.config.settings import QDRANT_COLLECTION_NAME, SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
@@ -137,7 +137,7 @@ def search_content_ctrl(request: SearchRequest, organization_id: str) -> SearchR
         raise HTTPException(status_code=400, detail="query cannot be empty")
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
-        from agent.src.models.embeddings import embed_text
+        from agents.langgraph_agent.embeddings.embeddings import embed_text
         client = get_qdrant_client()
         must_conditions = [FieldCondition(key="organization_id", match=MatchValue(value=organization_id))]
         if request.collection_name:

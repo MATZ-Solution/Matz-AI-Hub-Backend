@@ -6,8 +6,8 @@ Backs the Overview (dashboard) page: /stats.
 
 from fastapi import HTTPException
 
-from agent.src.utils.logger import logger
-from agent.src.utils.supabase_client import get_collections_from_db
+from agents.langgraph_agent.utils.utils import logger
+from agents.langgraph_agent.utils.utils import get_collections_from_db
 from api.helpers.qdrant_helper import scroll_all_points
 from api.schemas.schemas import StatsResponse
 

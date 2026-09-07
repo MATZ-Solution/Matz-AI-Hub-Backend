@@ -15,8 +15,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agent.src.utils.logger import logger
-from agent.src.utils.supabase_client import check_supabase_connection
+from agents.langgraph_agent.utils.utils import logger
+from agents.langgraph_agent.utils.utils import check_supabase_connection
 from api.helpers.qdrant_helper import ensure_qdrant_indexes
 from api.config.settings import (
     APP_TITLE, APP_DESCRIPTION, APP_VERSION,

@@ -9,7 +9,7 @@ from api.config.settings import (
     QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION_NAME,
     QDRANT_TIMEOUT, QDRANT_INDEXED_FIELDS,
 )
-from agent.src.utils.logger import logger
+from agents.langgraph_agent.utils.utils import logger
 
 
 def get_qdrant_client():

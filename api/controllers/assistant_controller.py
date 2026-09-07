@@ -4,7 +4,7 @@ api/controllers/assistant_controller.py
 Backs the Assistant page: chat + chat sessions.
 
 *** This is where the API integrates with the LangGraph agent (Backend/agent). ***
-`chat()` imported below from agent.src.agent.graph is the agent's entrypoint —
+`chat()` imported below from agents.langgraph_agent.main_langgraph_agent is the agent's entrypoint —
 everything upstream (routing, retrieval, grading, generation) happens inside
 Backend/agent and is opaque to the API layer. This controller's job is just to
 call it, time it, and persist the turn to Supabase.
@@ -14,9 +14,9 @@ import time
 
 from fastapi import HTTPException
 
-from agent.src.agent.graph import chat as run_agent_chat   # ← agent <-> backend integration point
-from agent.src.utils.logger import logger
-from agent.src.utils.supabase_client import (
+from agents.langgraph_agent.main_langgraph_agent import chat as run_agent_chat   # ← agent <-> backend integration point
+from agents.langgraph_agent.utils.utils import logger
+from agents.langgraph_agent.utils.utils import (
     create_session, get_sessions, delete_session,
     save_message, get_messages,
 )

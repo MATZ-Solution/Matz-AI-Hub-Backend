@@ -7,8 +7,8 @@ document counts from Qdrant.
 
 from fastapi import HTTPException
 
-from agent.src.utils.logger import logger
-from agent.src.utils.supabase_client import (
+from agents.langgraph_agent.utils.utils import logger
+from agents.langgraph_agent.utils.utils import (
     get_collections_from_db, create_collection_in_db, delete_collection_from_db,
 )
 from api.helpers.qdrant_helper import scroll_all_points
