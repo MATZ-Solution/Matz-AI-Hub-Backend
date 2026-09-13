@@ -85,7 +85,7 @@ def update_document_ctrl(
         result = extract_text(tmp_path)
         if not result["success"]:
             raise HTTPException(status_code=422, detail=f"Text extraction failed: {result['error']}")
-        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"])
+        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"], pages=result.get("pages"))
         if not chunks:
             raise HTTPException(status_code=422, detail="No content could be extracted")
         ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)
@@ -117,7 +117,7 @@ def ingest_document_ctrl(
         result = extract_text(tmp_path)
         if not result["success"]:
             raise HTTPException(status_code=422, detail=f"Text extraction failed: {result['error']}")
-        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"])
+        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"], pages=result.get("pages"))
         if not chunks:
             raise HTTPException(status_code=422, detail="No content could be extracted")
         vector_ids = ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)
