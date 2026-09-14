@@ -18,8 +18,7 @@ Settings:
 Maps to ERD:
   - document_chunks.content      → chunk text
   - document_chunks.chunk_index  → position in document
-  - document_chunks.page_number  → real page number when per-page text is
-                                   available (PDFs), estimated otherwise
+  - document_chunks.page_number  → estimated page number
   - document_chunks.token_count  → approximate token count
 """
 
@@ -31,48 +30,24 @@ CHUNK_OVERLAP = 50    # overlap tokens between chunks
 WORDS_PER_TOKEN = 0.75  # rough estimate: 1 token ≈ 0.75 words
 
 
-def chunk_text(
-    text: str,
-    document_id: str,
-    page_count: int = 1,
-    pages: list[str] | None = None,
-) -> list[dict]:
+def chunk_text(text: str, document_id: str, page_count: int = 1) -> list[dict]:
     """
     Split text into overlapping chunks.
 
     Args:
-        text:        full extracted text (ignored when `pages` is given)
+        text:        full extracted text
         document_id: maps to documents.id in ERD
         page_count:  total pages in document (for page estimation)
-        pages:       per-page text, in order. The PDF extractor supplies this,
-                     which lets each chunk carry its REAL page number. Without
-                     it we fall back to estimating the page from the chunk's
-                     relative position, which drifts badly on documents with
-                     uneven page lengths (a dense page 1 and a sparse page 9
-                     are treated as the same size).
 
     Returns:
         list of chunk dicts ready for embedding and Qdrant upload
     """
-    # Page boundaries as (start, end) character offsets into the joined text,
-    # so a chunk's offset can be mapped back to the page it came from.
-    bounds: list[tuple[int, int]] | None = None
-
-    if pages:
-        cleaned = [_clean_text(p) for p in pages]
-        parts, bounds, offset = [], [], 0
-        for page_text in cleaned:
-            parts.append(page_text)
-            bounds.append((offset, offset + len(page_text)))
-            offset += len(page_text) + 2          # the "\n\n" join below
-        text = "\n\n".join(parts)
-        page_count = len(cleaned)
-    else:
-        text = _clean_text(text)
-
     if not text or not text.strip():
         logger.warning("Chunker → empty text, returning no chunks")
         return []
+
+    # Clean text
+    text = _clean_text(text)
 
     # Split into sentences first — don't cut mid-sentence
     sentences = _split_sentences(text)
@@ -84,31 +59,16 @@ def chunk_text(
     result = []
     total_chars = len(text)
 
-    # Chunks overlap and can repeat text, so a plain text.find() would keep
-    # matching the FIRST occurrence and pin every repeat to the wrong page.
-    # Advance a cursor instead so each chunk is located at or after the
-    # previous one.
-    search_from = 0
-
     for i, chunk_text in enumerate(chunks):
-        probe          = chunk_text[:50]
-        chunk_position = text.find(probe, search_from)
-        if chunk_position < 0:                      # overlap rewound past the cursor
-            chunk_position = text.find(probe)
-        if chunk_position < 0:
-            chunk_position = search_from
-        search_from = max(search_from, chunk_position + 1)
-
-        if bounds:
-            page_number = _page_for_offset(chunk_position, bounds)
-        else:
-            page_number = max(1, int((chunk_position / max(total_chars, 1)) * page_count) + 1)
+        # Estimate page number based on position in document
+        chunk_position = text.find(chunk_text[:50])
+        estimated_page = max(1, int((chunk_position / max(total_chars, 1)) * page_count) + 1)
 
         result.append({
             "chunk_index":  i,
             "content":      chunk_text,
             "token_count":  _estimate_tokens(chunk_text),
-            "page_number":  page_number,
+            "page_number":  estimated_page,
             "document_id":  document_id,
         })
 
@@ -119,15 +79,6 @@ def chunk_text(
         sum(c["token_count"] for c in result) // max(len(result), 1)
     )
     return result
-
-
-def _page_for_offset(offset: int, bounds: list[tuple[int, int]]) -> int:
-    """Map a character offset in the joined text back to a 1-based page number."""
-    for i, (start, end) in enumerate(bounds):
-        if start <= offset <= end:
-            return i + 1
-    # Past the last boundary (can happen on the final chunk) → last page.
-    return len(bounds) or 1
 
 
 def _clean_text(text: str) -> str:

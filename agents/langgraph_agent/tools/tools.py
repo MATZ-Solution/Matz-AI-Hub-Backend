@@ -304,24 +304,14 @@ def grade_relevance(state: AgentState) -> AgentState:
 
     if not graded and attempts < MAX_RETRIEVAL_ATTEMPTS:
         rewritten = _rewrite_query(query)
-
-        # Retrying with the same query re-runs the identical search and gets
-        # the identical (zero) result — pure latency. Only retry if the
-        # rewrite actually changed something.
-        if rewritten.strip().lower() == query.strip().lower():
-            logger.info(
-                "Grader → no relevant chunks and the rewrite is unchanged, "
-                "not retrying"
-            )
-        else:
-            logger.info("Grader → no relevant chunks, retrying with: %r", rewritten)
-            return {
-                **state,
-                "graded_docs":        [],
-                "needs_retry":        True,
-                "retrieval_attempts": attempts + 1,
-                "rewritten_query":    rewritten,
-            }
+        logger.info("Grader → no relevant chunks, rewriting query: '%s'", rewritten)
+        return {
+            **state,
+            "graded_docs":        [],
+            "needs_retry":        True,
+            "retrieval_attempts": attempts + 1,
+            "rewritten_query":    rewritten,
+        }
 
     return {
         **state,
@@ -394,47 +384,16 @@ def _grade_chunk(query: str, chunk: str) -> tuple:
 
 
 def _rewrite_query(original_query: str) -> str:
-    """
-    Rewrite query for better retrieval on retry.
-
-    Always returns a usable query: if the rewrite is empty, truncated or
-    otherwise unusable, the ORIGINAL query is returned. It previously could
-    return "" — gpt-oss is a reasoning model and at max_tokens=60 it spent the
-    whole budget on hidden reasoning and emitted nothing, so retrieval was
-    retried with an empty string (up to 3 times, ~10s) and was guaranteed to
-    find nothing. An empty string is still a valid str, so nothing raised and
-    the failure was invisible.
-    """
+    """Rewrite query for better retrieval on retry."""
     try:
         response = call_llm(
             system_prompt=REWRITE_PROMPT,
             messages=[{"role": "user", "content": f"Original query: {original_query}"}],
             model=os.environ.get("GROQ_MODEL_FAST", "openai/gpt-oss-20b"),
             temperature=0.3,
-            # Room for the model to reason before answering, and a low
-            # reasoning budget so most of it goes to the actual rewrite.
-            max_tokens=400,
-            reasoning_effort="low",
+            max_tokens=60,
         )
-        rewritten = (response or "").strip().strip('"').strip()
-
-        if not rewritten:
-            logger.warning(
-                "Query rewrite returned empty — falling back to the original query"
-            )
-            return original_query
-
-        # A rewrite that is wildly longer than the original is usually the
-        # model explaining itself rather than rewriting; not worth trusting.
-        if len(rewritten) > max(200, len(original_query) * 6):
-            logger.warning(
-                "Query rewrite looks like prose, not a query — using original"
-            )
-            return original_query
-
-        logger.info("Grader → query rewritten: %r", rewritten)
-        return rewritten
-
+        return response.strip()
     except Exception as e:
         logger.warning("Query rewrite failed (%s) — using original", e)
         return original_query
