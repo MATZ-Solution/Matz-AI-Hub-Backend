@@ -159,6 +159,7 @@ class AnalyticsSummary(BaseModel):
     questions_asked_change_pct: float | None
     successful_answers: int
     success_rate_pct: float | None
+    success_rate_change_pct: float | None = None
     avg_response_time_ms: float | None
     avg_response_time_change_ms: float | None
     questions_over_time: list[QuestionsOverTimePoint]

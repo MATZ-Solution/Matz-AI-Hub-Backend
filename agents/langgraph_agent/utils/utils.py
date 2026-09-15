@@ -647,6 +647,7 @@ def _empty_analytics(organization_id: str, days: int) -> dict:
         "questions_asked_change_pct": None,
         "successful_answers": 0,
         "success_rate_pct": None,
+        "success_rate_change_pct": None,
         "avg_response_time_ms": None,
         "avg_response_time_change_ms": None,
         "questions_over_time": [
@@ -720,6 +721,23 @@ def get_analytics_summary(organization_id: str = "matz-demo-org", days: int = 14
             round(successful_answers / len(current_checked) * 100, 1) if current_checked else None
         )
 
+        # Same rate for the preceding period, so the UI can show a trend.
+        # Expressed in PERCENTAGE POINTS (e.g. 94.8 vs 91.7 -> +3.1), not as a
+        # percent change of a percent.
+        previous_checked = [
+            m for m in previous_msgs
+            if m["role"] == "assistant" and m.get("is_grounded") is not None
+        ]
+        previous_rate = (
+            sum(1 for m in previous_checked if m["is_grounded"]) / len(previous_checked) * 100
+            if previous_checked else None
+        )
+        success_rate_change_pct = (
+            round(success_rate_pct - previous_rate, 1)
+            if success_rate_pct is not None and previous_rate is not None
+            else None
+        )
+
         # ── Avg response time ───────────────────────────────────────────────
         current_timed = [
             m["response_time_ms"] for m in current_msgs
@@ -761,6 +779,7 @@ def get_analytics_summary(organization_id: str = "matz-demo-org", days: int = 14
             "questions_asked_change_pct": questions_asked_change_pct,
             "successful_answers": successful_answers,
             "success_rate_pct": success_rate_pct,
+            "success_rate_change_pct": success_rate_change_pct,
             "avg_response_time_ms": avg_response_time_ms,
             "avg_response_time_change_ms": avg_response_time_change_ms,
             "questions_over_time": questions_over_time,

@@ -23,7 +23,9 @@ pypdf>=5.0.0,<6
 python-docx>=1.1.0,<2
 python-pptx>=1.0.0,<1.1
 openpyxl>=3.1.0,<4
-# docling>=1.18.0,<2  # optional heavy OCR fallback — disabled for Python 3.14 (deepsearch-glm unavailable)
+# Renders scanned PDF pages to images for the vision model (not an OCR engine)
+pymupdf>=1.24.0,<2
+# docling>=1.18.0,<2  # optional heavy fallback for complex layouts/tables
 
 # Utilities
 python-dotenv==1.0.1
