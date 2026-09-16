@@ -94,7 +94,15 @@ src/utils/spell_correct.py
 Spell correction for English queries only.
 Skips correction if Urdu words are detected.
 """
-from textblob import TextBlob
+# Imported defensively: spell correction is a nice-to-have, but a module-level
+# `from textblob import TextBlob` means one missing optional package takes the
+# WHOLE API down at startup with ModuleNotFoundError — which is exactly what
+# happened on the first deploy. If it is unavailable, queries are simply passed
+# through uncorrected.
+try:
+    from textblob import TextBlob
+except ImportError:  # pragma: no cover
+    TextBlob = None
 
 URDU_MARKERS = [
     "kya", "hai", "kiya", "batao", "mujhe", "mujhey",
@@ -108,6 +116,9 @@ def correct_query(text: str) -> str:
 
     # If any Urdu marker found → skip correction entirely
     if any(marker in text_lower.split() for marker in URDU_MARKERS):
+        return text
+
+    if TextBlob is None:
         return text
 
     try:

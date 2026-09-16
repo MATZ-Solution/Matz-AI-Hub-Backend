@@ -37,3 +37,7 @@ pymupdf>=1.24.0,<2
 
 # Utilities
 python-dotenv==1.0.1
+# Spell correction for English queries (agents/.../utils.correct_query).
+# TextBlob's .correct() uses its own bundled spelling model, so no NLTK
+# corpus download is needed at build or runtime.
+textblob>=0.18.0,<1
