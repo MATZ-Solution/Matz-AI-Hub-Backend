@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.DS_Store
+logs/*
+!logs/.gitkeep
+tests/
+test_pipeline.py
+*.md

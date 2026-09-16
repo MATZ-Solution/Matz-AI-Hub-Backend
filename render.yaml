@@ -1,0 +1,48 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploy: push this file, then in Render choose "New +" → "Blueprint" and
+# point it at this repository.
+#
+# Secrets are marked `sync: false`, so Render prompts for them on first deploy
+# instead of keeping them in git.
+services:
+  - type: web
+    name: matz-api
+    runtime: python
+    plan: free
+    region: oregon
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.app:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /health
+
+    envVars:
+      # Must match the Python the code is written against (3.13 locally).
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+
+      # The default PyPI torch wheel bundles CUDA libraries — about 2 GB of
+      # GPU code that is useless on Render's CPU instances and slow to build.
+      # This points pip at the CPU-only build of the same version.
+      - key: PIP_EXTRA_INDEX_URL
+        value: https://download.pytorch.org/whl/cpu
+
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL_FAST
+        value: openai/gpt-oss-20b
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+
+      # Optional — enables vision transcription of scanned PDF pages.
+      # Without it, scanned pages are reported as unreadable rather than
+      # silently dropped, and everything else still works.
+      - key: FIREWORKS_API_KEY
+        sync: false
