@@ -4,9 +4,12 @@ from fastapi import APIRouter, UploadFile, File, Form
 
 from api.controllers.knowledge_controller import (
     get_documents_ctrl, delete_document_ctrl, update_document_ctrl,
-    ingest_document_ctrl, search_content_ctrl,
+    ingest_document_ctrl, search_content_ctrl, ingest_from_drive_ctrl,
 )
-from api.schemas.schemas import DocumentsResponse, IngestResponse, SearchRequest, SearchResponse
+from api.schemas.schemas import (
+    DocumentsResponse, IngestResponse, SearchRequest, SearchResponse,
+    DriveIngestRequest, DriveIngestResponse,
+)
 from api.config.settings import DEFAULT_ORGANIZATION_ID
 
 router = APIRouter(tags=["knowledge"])
@@ -48,6 +51,15 @@ def ingest_document(
     return ingest_document_ctrl(
         file, document_title, collection_name, collection_id, organization_id, document_id
     )
+
+
+@router.post("/ingest/drive", response_model=DriveIngestResponse)
+def ingest_from_drive(
+    request: DriveIngestRequest,
+    organization_id: str = DEFAULT_ORGANIZATION_ID,
+):
+    """Import every supported document from a public Google Drive folder."""
+    return ingest_from_drive_ctrl(request, organization_id)
 
 
 @router.post("/search", response_model=SearchResponse)
