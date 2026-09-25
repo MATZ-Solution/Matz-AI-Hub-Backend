@@ -1,5 +1,4 @@
 """
-main.py
 --------
 Entry point for the MATZ AI Knowledge Assistant.
 Run: python main.py
