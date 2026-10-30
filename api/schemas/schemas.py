@@ -52,6 +52,35 @@ class IngestResponse(BaseModel):
     vector_ids: list[str]
 
 
+# ── Google Drive folder import ───────────────────────────────────────────────
+
+class DriveIngestRequest(BaseModel):
+    folder_url: str
+    collection_name: str
+    collection_id: str
+
+
+class DriveFileResult(BaseModel):
+    """Per-file outcome, so a partial import can still report what worked."""
+    file_id: str
+    name: str
+    status: str                 # "ingested" | "skipped" | "failed"
+    chunks_created: int = 0
+    page_count: int = 0
+    extraction_method: str | None = None
+    error: str | None = None
+
+
+class DriveIngestResponse(BaseModel):
+    success: bool
+    folder_id: str
+    files_found: int
+    files_ingested: int
+    files_failed: int
+    total_chunks: int
+    results: list[DriveFileResult]
+
+
 class DocumentItem(BaseModel):
     document_id: str
     document_title: str

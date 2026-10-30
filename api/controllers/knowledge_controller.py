@@ -13,10 +13,14 @@ from data.pipeline.chunker import chunk_text
 from data.pipeline.ingestor import ingest_chunks
 from api.helpers.qdrant_helper import get_qdrant_client, scroll_all_points
 from api.helpers.file_helper import is_allowed_extension, save_upload_to_tempfile, cleanup_tempfile
+from api.helpers.drive_helper import (
+    DriveError, extract_folder_id, list_folder_files, download_file, MAX_FILES,
+)
 from api.config.settings import QDRANT_COLLECTION_NAME, SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
 from api.schemas.schemas import (
     DocumentsResponse, DocumentItem, IngestResponse,
     SearchRequest, SearchResponse, SearchResult,
+    DriveIngestRequest, DriveIngestResponse, DriveFileResult,
 )
 
 
@@ -158,3 +162,135 @@ def search_content_ctrl(request: SearchRequest, organization_id: str) -> SearchR
     except Exception as e:
         logger.error("Search error: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+def ingest_from_drive_ctrl(
+    request: DriveIngestRequest,
+    organization_id: str,
+) -> DriveIngestResponse:
+    """
+    Ingest every supported document in a public Google Drive folder.
+
+    Runs synchronously: fine for the folder sizes this is meant for (a handful
+    of policy documents), and it keeps the client simple. A folder large enough
+    to time out would need a background job with a status endpoint — the
+    MAX_FILES cap in drive_helper keeps that from creeping up unnoticed.
+
+    Re-running the same folder is safe. Each file's document_id is derived from
+    its Drive file id, and the existing points are deleted before re-ingesting,
+    so an import is idempotent rather than duplicating every chunk.
+    """
+    try:
+        folder_id = extract_folder_id(request.folder_url)
+        files = list_folder_files(folder_id)
+    except DriveError as e:
+        # A configuration or permission problem — the message is written to be
+        # shown to the user as-is.
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(
+        "API → /ingest/drive | folder: %s | %d file(s) | collection: %s",
+        folder_id, len(files), request.collection_name,
+    )
+
+    if not files:
+        return DriveIngestResponse(
+            success=True, folder_id=folder_id, files_found=0,
+            files_ingested=0, files_failed=0, total_chunks=0, results=[],
+        )
+
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    client = get_qdrant_client()
+
+    results: list[DriveFileResult] = []
+    total_chunks = 0
+
+    for drive_file in files[:MAX_FILES]:
+        file_id = drive_file["id"]
+        name = drive_file.get("name", file_id)
+        # Deterministic, so a re-import updates rather than duplicates.
+        document_id = f"gdrive-{file_id}"
+        document_title = name.rsplit(".", 1)[0] if "." in name else name
+
+        tmp_path = None
+        try:
+            tmp_path = download_file(file_id, drive_file.get("mimeType", ""))
+
+            extraction = extract_text(tmp_path)
+            if not extraction["success"]:
+                results.append(DriveFileResult(
+                    file_id=file_id, name=name, status="failed",
+                    error=f"Text extraction failed: {extraction['error']}",
+                ))
+                continue
+
+            chunks = chunk_text(
+                text=extraction["text"],
+                document_id=document_id,
+                page_count=extraction["page_count"],
+            )
+            if not chunks:
+                results.append(DriveFileResult(
+                    file_id=file_id, name=name, status="failed",
+                    error="No content could be extracted",
+                ))
+                continue
+
+            # Clear any previous import of this same Drive file first.
+            client.delete(
+                collection_name=QDRANT_COLLECTION_NAME,
+                points_selector=Filter(must=[
+                    FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+                    FieldCondition(key="organization_id", match=MatchValue(value=organization_id)),
+                ]),
+            )
+
+            ingest_chunks(
+                chunks=chunks,
+                document_id=document_id,
+                document_title=document_title,
+                collection_id=request.collection_id,
+                collection_name=request.collection_name,
+                organization_id=organization_id,
+            )
+
+            total_chunks += len(chunks)
+            results.append(DriveFileResult(
+                file_id=file_id, name=name, status="ingested",
+                chunks_created=len(chunks),
+                page_count=extraction["page_count"],
+                extraction_method=extraction["method"],
+            ))
+            logger.info("Drive → ingested %s (%d chunks)", name, len(chunks))
+
+        except DriveError as e:
+            # One bad file should not abandon the rest of the folder.
+            logger.warning("Drive → %s failed: %s", name, e)
+            results.append(DriveFileResult(
+                file_id=file_id, name=name, status="failed", error=str(e),
+            ))
+        except Exception as e:
+            logger.error("Drive → %s failed: %s", name, e)
+            results.append(DriveFileResult(
+                file_id=file_id, name=name, status="failed", error=str(e),
+            ))
+        finally:
+            cleanup_tempfile(tmp_path)
+
+    ingested = sum(1 for r in results if r.status == "ingested")
+    failed = sum(1 for r in results if r.status == "failed")
+
+    logger.info(
+        "API → /ingest/drive done | %d ingested, %d failed | %d chunks",
+        ingested, failed, total_chunks,
+    )
+
+    return DriveIngestResponse(
+        # Successful as long as something landed; per-file errors are in results.
+        success=ingested > 0,
+        folder_id=folder_id,
+        files_found=len(files),
+        files_ingested=ingested,
+        files_failed=failed,
+        total_chunks=total_chunks,
+        results=results,
+    )
