@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import check_supabase_connection
-from api.helpers.qdrant_helper import ensure_qdrant_indexes
+from data import qdrant_store
 from api.errors import install_error_handling
 from api.auth import install_auth, seed_admin
 from api.config.settings import (
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
             "Missing required environment variables: " + ", ".join(missing)
             + ". Set them as Fly/Render secrets or in Backend/.env."
         )
-    ensure_qdrant_indexes()
+    qdrant_store.ensure_indexes(logger)
     seed_admin()
     check_supabase_connection()
     yield

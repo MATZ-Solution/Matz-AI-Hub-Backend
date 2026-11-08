@@ -37,11 +37,8 @@ def missing_required_env() -> list[str]:
 HEALTH_PROVIDER_CACHE_SECONDS = 300
 
 # ── Qdrant ────────────────────────────────────────────────────────────────────
-QDRANT_URL = os.environ.get("QDRANT_URL")
-QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY")
-QDRANT_COLLECTION_NAME = "matz_chunks"
-QDRANT_TIMEOUT = 30
-QDRANT_INDEXED_FIELDS = ["organization_id", "document_id", "collection_id"]
+# Connection and collection settings live in data/qdrant_store.py, the only
+# module allowed to talk to Qdrant (task A4).
 
 # ── App defaults ──────────────────────────────────────────────────────────────
 DEFAULT_ORGANIZATION_ID = "matz-demo-org"

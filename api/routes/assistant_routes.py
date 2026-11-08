@@ -1,13 +1,13 @@
 """api/routes/assistant_routes.py — Assistant page (chat + sessions)."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from api.controllers.assistant_controller import (
     chat_ctrl, create_session_ctrl, list_sessions_ctrl,
     delete_session_ctrl, get_session_messages_ctrl,
 )
 from api.schemas.schemas import ChatRequest, ChatResponse
-from api.config.settings import DEFAULT_ORGANIZATION_ID
+from api.auth import CurrentUser, get_current_user
 
 router = APIRouter(tags=["assistant"])
 
@@ -18,25 +18,25 @@ router = APIRouter(tags=["assistant"])
 # threadpool where blocking is safe.
 
 @router.post("/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest, organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return chat_ctrl(request, organization_id)
+def chat_endpoint(request: ChatRequest, user: CurrentUser = Depends(get_current_user)):
+    return chat_ctrl(request, user.organization_id, user_id=user.id)
 
 
 @router.post("/sessions")
-def create_chat_session(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return create_session_ctrl(organization_id)
+def create_chat_session(user: CurrentUser = Depends(get_current_user)):
+    return create_session_ctrl(user.organization_id)
 
 
 @router.get("/sessions")
-def list_sessions(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return list_sessions_ctrl(organization_id)
+def list_sessions(user: CurrentUser = Depends(get_current_user)):
+    return list_sessions_ctrl(user.organization_id)
 
 
 @router.delete("/sessions/{session_id}")
-def delete_chat_session(session_id: str, organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return delete_session_ctrl(session_id, organization_id)
+def delete_chat_session(session_id: str, user: CurrentUser = Depends(get_current_user)):
+    return delete_session_ctrl(session_id, user.organization_id)
 
 
 @router.get("/sessions/{session_id}/messages")
-def get_session_messages(session_id: str, organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return get_session_messages_ctrl(session_id, organization_id)
+def get_session_messages(session_id: str, user: CurrentUser = Depends(get_current_user)):
+    return get_session_messages_ctrl(session_id, user.organization_id)

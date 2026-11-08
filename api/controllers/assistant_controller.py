@@ -35,7 +35,7 @@ CHAT_TIMEOUT_SECONDS = 30
 _agent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="agent")
 
 
-def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
+def chat_ctrl(request: ChatRequest, organization_id: str, user_id: str | None = None) -> ChatResponse:
     if not request.user_query.strip():
         raise HTTPException(status_code=400, detail="user_query cannot be empty")
 
@@ -77,7 +77,7 @@ def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
         # relevance grading; anything else is no_context (metric definitions).
         outcome = "answered" if result.get("answer") and result.get("citations") else "no_context"
     finally:
-        _log_chat_event(request, organization_id, outcome, start_time, meter, result)
+        _log_chat_event(request, organization_id, user_id, outcome, start_time, meter, result)
 
     answer = result["answer"]
     citations = result.get("citations") or []
@@ -107,13 +107,13 @@ def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
     )
 
 
-def _log_chat_event(request: ChatRequest, organization_id: str, outcome: str,
+def _log_chat_event(request: ChatRequest, organization_id: str, user_id: str | None, outcome: str,
                     start_time: float, meter: UsageMeter, result: dict) -> None:
     citations = result.get("citations") or []
     target = result.get("target_collection")
     record_chat_event({
         "organization_id": organization_id,
-        "user_id": None,  # set once authentication (A3) exists
+        "user_id": user_id,
         "session_id": request.session_id,
         "outcome": outcome,
         "latency_ms": int((time.time() - start_time) * 1000),

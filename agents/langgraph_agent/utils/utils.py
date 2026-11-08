@@ -76,7 +76,6 @@ class Config:
     llm_model: str          = "openai/gpt-oss-120b"
     top_k: int              = 3
     min_score: float        = 0.2
-    organization_id: str    = "matz-demo-org"
     max_history_messages: int = 20
 
 
@@ -386,7 +385,7 @@ def check_supabase_connection() -> bool:
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
-def create_session(organization_id: str = "matz-demo-org") -> str:
+def create_session(organization_id: str) -> str:
     """Creates a new chat session. Returns the session ID."""
     try:
         client = get_supabase()
@@ -401,7 +400,7 @@ def create_session(organization_id: str = "matz-demo-org") -> str:
         return None
 
 
-def get_sessions(organization_id: str = "matz-demo-org") -> list:
+def get_sessions(organization_id: str) -> list:
     """Returns all sessions for an organization, most recent first."""
     try:
         client = get_supabase()
@@ -522,7 +521,7 @@ def record_chat_event(event: dict) -> None:
 
 # ── Collections ───────────────────────────────────────────────────────────────
 
-def get_collections_from_db(organization_id: str = "matz-demo-org") -> list:
+def get_collections_from_db(organization_id: str) -> list:
     """Returns all collections from Supabase."""
     try:
         client = get_supabase()
@@ -541,7 +540,8 @@ def create_collection_in_db(
     name: str,
     description: str = "",
     icon: str = "folder",
-    organization_id: str = "matz-demo-org"
+    *,
+    organization_id: str,
 ) -> dict:
     """Creates a new collection in Supabase."""
     try:
@@ -574,7 +574,7 @@ def delete_collection_from_db(collection_id: str, organization_id: str) -> bool:
 
 # ── Workspace settings ────────────────────────────────────────────────────────
 
-def get_workspace_settings(organization_id: str = "matz-demo-org") -> dict:
+def get_workspace_settings(organization_id: str) -> dict:
     """Returns workspace settings from Supabase, or sane defaults if none saved yet."""
     try:
         client = get_supabase()
@@ -607,7 +607,7 @@ def upsert_workspace_settings(organization_id: str, name: str) -> dict:
 
 # ── Assistant config ─────────────────────────────────────────────────────────
 
-def get_assistant_config(organization_id: str = "matz-demo-org") -> dict:
+def get_assistant_config(organization_id: str) -> dict:
     """Returns assistant config from Supabase, or sane defaults if none saved yet."""
     try:
         client = get_supabase()
@@ -653,7 +653,7 @@ def upsert_assistant_config(organization_id: str, name: str, personality: str, i
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
 
-def count_user_questions(organization_id: str = "matz-demo-org") -> int:
+def count_user_questions(organization_id: str) -> int:
     """
     Counts user messages across all sessions for an organization.
 
@@ -710,7 +710,7 @@ def _empty_analytics(organization_id: str, days: int) -> dict:
     }
 
 
-def get_analytics_summary(organization_id: str = "matz-demo-org", days: int = 14) -> dict:
+def get_analytics_summary(organization_id: str, days: int = 14) -> dict:
     """
     Computes real usage/performance analytics from Supabase message and
     session history for the last `days` days, compared against the `days`
@@ -876,7 +876,7 @@ _TTL_SECONDS = 60
 _cache: dict[str, tuple[float, dict]] = {}
 
 
-def get_cached_assistant_config(organization_id: str = "matz-demo-org") -> dict:
+def get_cached_assistant_config(organization_id: str) -> dict:
     entry = _cache.get(organization_id)
     if entry and (time.time() - entry[0]) < _TTL_SECONDS:
         return entry[1]

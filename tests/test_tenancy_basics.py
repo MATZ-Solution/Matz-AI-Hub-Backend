@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from api.app import app
 from agents.langgraph_agent.nodes import node
 from agents.langgraph_agent.utils import utils
+from data import qdrant_store
 
 from tests.conftest import session_headers
 
@@ -43,7 +44,7 @@ def _state(org):
 
 def test_retrieve_context_filters_on_request_org(monkeypatch):
     fake = _RecordingQdrant()
-    monkeypatch.setattr(node, "_get_client", lambda: fake)
+    monkeypatch.setattr(qdrant_store, "_get_client", lambda: fake)
     monkeypatch.setattr(node, "embed_text", lambda text: [0.0] * 384)
     monkeypatch.setattr(node, "correct_query", lambda text: text)
     node.retrieve_context(_state("org-b"))
@@ -52,7 +53,7 @@ def test_retrieve_context_filters_on_request_org(monkeypatch):
 
 def test_retrieve_all_filters_on_request_org(monkeypatch):
     fake = _RecordingQdrant()
-    monkeypatch.setattr(node, "_get_client", lambda: fake)
+    monkeypatch.setattr(qdrant_store, "_get_client", lambda: fake)
     node.retrieve_all(_state("org-b"))
     assert _org_values(fake.filters) == ["org-b"]
 

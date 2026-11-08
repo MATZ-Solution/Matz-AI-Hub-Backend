@@ -14,7 +14,7 @@ from agents.langgraph_agent.utils.utils import (
     count_user_questions,
 )
 from agents.langgraph_agent.utils.utils import invalidate_assistant_config
-from api.helpers.qdrant_helper import scroll_all_points
+from data import qdrant_store
 from api.schemas.schemas import (
     WorkspaceSettings, WorkspaceSettingsUpdate,
     AssistantConfig, AssistantConfigUpdate,
@@ -71,7 +71,7 @@ def update_assistant_config_ctrl(request: AssistantConfigUpdate, organization_id
 
 def get_usage_ctrl(organization_id: str) -> UsageResponse:
     try:
-        all_points = scroll_all_points(organization_id)
+        all_points = qdrant_store.scroll_all(organization_id)
         doc_ids = {p.payload.get("document_id", "unknown") for p in all_points}
         questions_used = count_user_questions(organization_id)
         return UsageResponse(

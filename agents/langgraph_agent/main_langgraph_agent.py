@@ -110,7 +110,8 @@ compiled_graph = build_graph()
 def chat(
     user_query: str,
     chat_history: list = None,
-    organization_id: str = "matz-demo-org",
+    *,
+    organization_id: str,
 ) -> tuple:
     result = run_chat(user_query, chat_history, organization_id)
     return result["answer"], result["citations"], result["chat_history"], result.get("is_grounded", True)

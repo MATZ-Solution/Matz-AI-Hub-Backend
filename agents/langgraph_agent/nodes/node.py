@@ -16,32 +16,14 @@ Maps to ERD:
 - chunk content   → document_chunks.content
 """
 
-import os
-from dotenv import load_dotenv
-from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue, ScrollRequest
-
 from agents.langgraph_agent.models.models import AgentState
 from agents.langgraph_agent.embeddings.embeddings import embed_text
 from agents.langgraph_agent.utils.utils import correct_query
 from agents.langgraph_agent.utils.utils import logger
+from data import qdrant_store
 
-load_dotenv()
-
-QDRANT_URL      = os.environ.get("QDRANT_URL")
-QDRANT_API_KEY  = os.environ.get("QDRANT_API_KEY")
-COLLECTION      = "matz_chunks"
 TOP_K           = 3
 MIN_SCORE       = 0.1
-
-_qdrant_client: QdrantClient | None = None
-
-
-def _get_client() -> QdrantClient:
-    global _qdrant_client
-    if _qdrant_client is None:
-        _qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-    return _qdrant_client
 
 
 def retrieve_context(state: AgentState) -> AgentState:
@@ -51,27 +33,11 @@ def retrieve_context(state: AgentState) -> AgentState:
     """
     query  = correct_query(state["user_query"])
     state  = {**state, "user_query": query}
-    client = _get_client()
     # Always the org of the current request — never a module constant, or
     # every workspace would search the demo org's documents.
     org_id = state["organization_id"]
 
-    query_vector = embed_text(query)
-
-    results = client.query_points(
-        collection_name=COLLECTION,
-        query=query_vector,
-        query_filter=Filter(
-            must=[
-                FieldCondition(
-                    key="organization_id",
-                    match=MatchValue(value=org_id),
-                )
-            ]
-        ),
-        limit=TOP_K,
-        with_payload=True,
-    ).points
+    results = qdrant_store.query(org_id, embed_text(query), limit=TOP_K)
 
     docs = []
     for hit in results:
@@ -104,44 +70,18 @@ def retrieve_all(state: AgentState) -> AgentState:
     When new documents are uploaded and embedded, they are automatically
     included in the response — no code changes needed.
     """
-    client = _get_client()
     org_id = state["organization_id"]
     logger.info("Retrieve all → fetching all chunks for org: %s", org_id)
 
-    # Scroll through ALL points for this organization
     all_docs = []
-    offset   = None
-
-    while True:
-        results, next_offset = client.scroll(
-            collection_name=COLLECTION,
-            scroll_filter=Filter(
-                must=[
-                    FieldCondition(
-                        key="organization_id",
-                        match=MatchValue(value=org_id),
-                    )
-                ]
-            ),
-            limit=100,          # fetch 100 at a time
-            offset=offset,
-            with_payload=True,
-            with_vectors=False, # no vectors needed for overview
+    for point in qdrant_store.scroll_all(org_id):
+        payload = point.payload
+        all_docs.append(
+            f"[Source: {payload['document_title']} · "
+            f"{payload['collection_name']} · "
+            f"Page {payload['page_number']}]\n"
+            f"{payload['content']}"
         )
-
-        for point in results:
-            payload = point.payload
-            formatted = (
-                f"[Source: {payload['document_title']} · "
-                f"{payload['collection_name']} · "
-                f"Page {payload['page_number']}]\n"
-                f"{payload['content']}"
-            )
-            all_docs.append(formatted)
-
-        if next_offset is None:
-            break
-        offset = next_offset
 
     logger.info("Retrieve all → fetched %d chunks", len(all_docs))
     return {**state, "retrieved_docs": all_docs, "graded_docs": all_docs}

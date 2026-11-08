@@ -1,6 +1,6 @@
 """api/routes/settings_routes.py — Settings page (workspace, assistant config, usage)."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from api.controllers.settings_controller import (
     get_workspace_settings_ctrl, update_workspace_settings_ctrl,
@@ -12,37 +12,37 @@ from api.schemas.schemas import (
     AssistantConfig, AssistantConfigUpdate,
     UsageResponse,
 )
-from api.config.settings import DEFAULT_ORGANIZATION_ID
+from api.auth import CurrentUser, get_current_user
 
 router = APIRouter(tags=["settings"])
 
 
 @router.get("/settings/workspace", response_model=WorkspaceSettings)
-def get_workspace_settings_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return get_workspace_settings_ctrl(organization_id)
+def get_workspace_settings_route(user: CurrentUser = Depends(get_current_user)):
+    return get_workspace_settings_ctrl(user.organization_id)
 
 
 @router.put("/settings/workspace", response_model=WorkspaceSettings)
 def update_workspace_settings_route(
     request: WorkspaceSettingsUpdate,
-    organization_id: str = DEFAULT_ORGANIZATION_ID,
+    user: CurrentUser = Depends(get_current_user),
 ):
-    return update_workspace_settings_ctrl(request, organization_id)
+    return update_workspace_settings_ctrl(request, user.organization_id)
 
 
 @router.get("/settings/assistant", response_model=AssistantConfig)
-def get_assistant_config_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return get_assistant_config_ctrl(organization_id)
+def get_assistant_config_route(user: CurrentUser = Depends(get_current_user)):
+    return get_assistant_config_ctrl(user.organization_id)
 
 
 @router.put("/settings/assistant", response_model=AssistantConfig)
 def update_assistant_config_route(
     request: AssistantConfigUpdate,
-    organization_id: str = DEFAULT_ORGANIZATION_ID,
+    user: CurrentUser = Depends(get_current_user),
 ):
-    return update_assistant_config_ctrl(request, organization_id)
+    return update_assistant_config_ctrl(request, user.organization_id)
 
 
 @router.get("/settings/usage", response_model=UsageResponse)
-def get_usage_route(organization_id: str = DEFAULT_ORGANIZATION_ID):
-    return get_usage_ctrl(organization_id)
+def get_usage_route(user: CurrentUser = Depends(get_current_user)):
+    return get_usage_ctrl(user.organization_id)

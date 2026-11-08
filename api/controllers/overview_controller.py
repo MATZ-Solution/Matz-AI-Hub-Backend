@@ -8,13 +8,13 @@ from fastapi import HTTPException
 
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import get_collections_from_db
-from api.helpers.qdrant_helper import scroll_all_points
+from data import qdrant_store
 from api.schemas.schemas import StatsResponse
 
 
 def get_stats_ctrl(organization_id: str) -> StatsResponse:
     try:
-        all_points = scroll_all_points(organization_id)
+        all_points = qdrant_store.scroll_all(organization_id)
         doc_ids: set = set()
         col_docs: dict = {}
         for point in all_points:

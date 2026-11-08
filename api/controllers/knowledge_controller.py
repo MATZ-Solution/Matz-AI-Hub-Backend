@@ -13,12 +13,13 @@ from agents.langgraph_agent.utils.utils import logger
 from data.pipeline.processor import extract_text
 from data.pipeline.chunker import chunk_text
 from data.pipeline.ingestor import ingest_chunks
-from api.helpers.qdrant_helper import get_qdrant_client, scroll_all_points
+from data import qdrant_store
+from data.pipeline.ingestor import delete_document_chunks
 from api.helpers.file_helper import is_allowed_extension, save_upload_to_tempfile, cleanup_tempfile
 from api.helpers.drive_helper import (
     DriveError, extract_folder_id, list_folder_files, download_file, MAX_FILES,
 )
-from api.config.settings import QDRANT_COLLECTION_NAME, SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
+from api.config.settings import SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
 from api.schemas.schemas import (
     DocumentsResponse, DocumentItem, IngestResponse,
     SearchRequest, SearchResponse, SearchResult,
@@ -28,7 +29,7 @@ from api.schemas.schemas import (
 
 def get_documents_ctrl(organization_id: str) -> DocumentsResponse:
     try:
-        all_points = scroll_all_points(organization_id)
+        all_points = qdrant_store.scroll_all(organization_id)
         docs_map: dict = {}
         for point in all_points:
             payload = point.payload
@@ -54,12 +55,7 @@ def get_documents_ctrl(organization_id: str) -> DocumentsResponse:
 
 def delete_document_ctrl(document_id: str, organization_id: str) -> dict:
     try:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
-        client = get_qdrant_client()
-        client.delete(collection_name=QDRANT_COLLECTION_NAME, points_selector=Filter(must=[
-            FieldCondition(key="document_id", match=MatchValue(value=document_id)),
-            FieldCondition(key="organization_id", match=MatchValue(value=organization_id)),
-        ]))
+        delete_document_chunks(document_id, organization_id)
         logger.info("API → deleted document %s", document_id)
         return {"success": True, "document_id": document_id}
     except Exception as e:
@@ -81,12 +77,7 @@ def update_document_ctrl(
 
     tmp_path = None
     try:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
-        client = get_qdrant_client()
-        client.delete(collection_name=QDRANT_COLLECTION_NAME, points_selector=Filter(must=[
-            FieldCondition(key="document_id", match=MatchValue(value=document_id)),
-            FieldCondition(key="organization_id", match=MatchValue(value=organization_id)),
-        ]))
+        delete_document_chunks(document_id, organization_id)
         tmp_path = save_upload_to_tempfile(file)
         result = extract_text(tmp_path)
         if not result["success"]:
@@ -142,14 +133,11 @@ def search_content_ctrl(request: SearchRequest, organization_id: str) -> SearchR
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty")
     try:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
         from agents.langgraph_agent.embeddings.embeddings import embed_text
-        client = get_qdrant_client()
-        must_conditions = [FieldCondition(key="organization_id", match=MatchValue(value=organization_id))]
+        conditions = []
         if request.collection_name:
-            must_conditions.append(FieldCondition(key="collection_name", match=MatchValue(value=request.collection_name)))
-        query_vector = embed_text(request.query)
-        results = client.query_points(collection_name=QDRANT_COLLECTION_NAME, query=query_vector, query_filter=Filter(must=must_conditions), limit=request.top_k, with_payload=True).points
+            conditions.append(qdrant_store.match("collection_name", request.collection_name))
+        results = qdrant_store.query(organization_id, embed_text(request.query), *conditions, limit=request.top_k)
         search_results = []
         for hit in results:
             payload = hit.payload
@@ -200,9 +188,6 @@ def ingest_from_drive_ctrl(
             files_ingested=0, files_failed=0, total_chunks=0, results=[],
         )
 
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
-    client = get_qdrant_client()
-
     results: list[DriveFileResult] = []
     total_chunks = 0
 
@@ -238,13 +223,7 @@ def ingest_from_drive_ctrl(
                 continue
 
             # Clear any previous import of this same Drive file first.
-            client.delete(
-                collection_name=QDRANT_COLLECTION_NAME,
-                points_selector=Filter(must=[
-                    FieldCondition(key="document_id", match=MatchValue(value=document_id)),
-                    FieldCondition(key="organization_id", match=MatchValue(value=organization_id)),
-                ]),
-            )
+            delete_document_chunks(document_id, organization_id)
 
             ingest_chunks(
                 chunks=chunks,

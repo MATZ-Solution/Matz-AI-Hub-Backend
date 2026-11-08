@@ -14,29 +14,13 @@ Maps to ERD:
   - documents.organization_id     → stored in Qdrant payload (tenant isolation)
 """
 
-import os
 import uuid
-from dotenv import load_dotenv
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+
+from qdrant_client.models import PointStruct
 
 from agents.langgraph_agent.embeddings.embeddings import embed_texts
 from agents.langgraph_agent.utils.utils import logger
-
-load_dotenv()
-
-QDRANT_URL     = os.environ.get("QDRANT_URL")
-QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY")
-COLLECTION     = "matz_chunks"
-
-_client: QdrantClient | None = None
-
-
-def _get_client() -> QdrantClient:
-    global _client
-    if _client is None:
-        _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-    return _client
+from data import qdrant_store
 
 
 def ingest_chunks(
@@ -64,8 +48,6 @@ def ingest_chunks(
     if not chunks:
         logger.warning("Ingestor → no chunks to ingest")
         return []
-
-    client = _get_client()
 
     # Embed all chunks in one batch — faster than one by one
     logger.info("Ingestor → embedding %d chunks...", len(chunks))
@@ -99,17 +81,8 @@ def ingest_chunks(
             }
         ))
 
-    # Upload to Qdrant in batches of 50
-    batch_size = 50
-    for i in range(0, len(points), batch_size):
-        batch = points[i:i + batch_size]
-        client.upsert(collection_name=COLLECTION, points=batch)
-        logger.info(
-            "Ingestor → uploaded batch %d/%d (%d points)",
-            i // batch_size + 1,
-            (len(points) - 1) // batch_size + 1,
-            len(batch)
-        )
+    # Upload through the tenant-checked store (batches of 50).
+    qdrant_store.upsert(organization_id, points)
 
     logger.info(
         "Ingestor → ✅ %d chunks uploaded to Qdrant | doc: %s | org: %s",
@@ -118,22 +91,8 @@ def ingest_chunks(
     return vector_ids
 
 
-def delete_document_chunks(document_id: str, organization_id: str) -> int:
-    """
-    Delete all Qdrant points for a document.
-    Called when a document is deleted or re-processed.
-
-    Returns number of points deleted.
-    """
-    client = _get_client()
-    result = client.delete(
-        collection_name=COLLECTION,
-        points_selector=Filter(
-            must=[
-                FieldCondition(key="document_id",    match=MatchValue(value=document_id)),
-                FieldCondition(key="organization_id", match=MatchValue(value=organization_id)),
-            ]
-        )
-    )
+def delete_document_chunks(document_id: str, organization_id: str) -> None:
+    """Delete all of this organization's Qdrant points for a document.
+    Called when a document is deleted or re-processed."""
+    qdrant_store.delete(organization_id, qdrant_store.match("document_id", document_id))
     logger.info("Ingestor → deleted chunks for document %s", document_id)
-    return result.operation_id

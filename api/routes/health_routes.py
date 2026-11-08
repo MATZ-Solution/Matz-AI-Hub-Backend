@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from agents.langgraph_agent.utils.utils import logger
 from api.config.settings import (
-    APP_TITLE, GROQ_MODEL_FAST, HEALTH_PROVIDER_CACHE_SECONDS, QDRANT_COLLECTION_NAME,
+    APP_TITLE, GROQ_MODEL_FAST, HEALTH_PROVIDER_CACHE_SECONDS,
 )
 
 router = APIRouter(tags=["health"])
@@ -35,8 +35,8 @@ def _check_provider() -> bool:
 
 def _check_qdrant() -> bool:
     try:
-        from api.helpers.qdrant_helper import get_qdrant_client
-        get_qdrant_client().get_collection(QDRANT_COLLECTION_NAME)
+        from data import qdrant_store
+        qdrant_store.ping()
         return True
     except Exception as e:
         logger.error("Health → Qdrant check failed: %s", e)

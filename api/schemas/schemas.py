@@ -8,14 +8,12 @@ so controllers and routes can share the same contracts.
 from typing import Optional
 from pydantic import BaseModel
 
-from api.config.settings import DEFAULT_ORGANIZATION_ID
 
 
 # ── Assistant (chat / sessions) ──────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     user_query: str
-    organization_id: str = DEFAULT_ORGANIZATION_ID
     conversation_id: Optional[str] = None
     session_id: Optional[str] = None
     chat_history: list = []
@@ -97,7 +95,6 @@ class DocumentsResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    organization_id: str = DEFAULT_ORGANIZATION_ID
     collection_name: Optional[str] = None
     top_k: int = 5
 
@@ -123,7 +120,6 @@ class CollectionCreate(BaseModel):
     name: str
     description: str = ""
     icon: str = "folder"
-    organization_id: str = DEFAULT_ORGANIZATION_ID
 
 
 # ── Overview ──────────────────────────────────────────────────────────────────
@@ -144,7 +140,6 @@ class WorkspaceSettings(BaseModel):
 
 class WorkspaceSettingsUpdate(BaseModel):
     name: str
-    organization_id: str = DEFAULT_ORGANIZATION_ID
 
 
 # ── Settings: Assistant config (Assistant tab) ───────────────────────────────
@@ -160,7 +155,6 @@ class AssistantConfigUpdate(BaseModel):
     name: str
     personality: str
     instructions: str
-    organization_id: str = DEFAULT_ORGANIZATION_ID
 
 
 # ── Settings: Usage ───────────────────────────────────────────────────────────
