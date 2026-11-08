@@ -7,6 +7,8 @@ document counts from Qdrant.
 
 from fastapi import HTTPException
 
+from api.errors import ApiError, ErrorCode
+
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import (
     get_collections_from_db, create_collection_in_db, delete_collection_from_db,
@@ -76,7 +78,6 @@ def create_collection_ctrl(request: CollectionCreate, organization_id: str) -> d
 
 
 def delete_collection_ctrl(collection_id: str, organization_id: str) -> dict:
-    success = delete_collection_from_db(collection_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to delete collection")
+    if not delete_collection_from_db(collection_id, organization_id):
+        raise ApiError(ErrorCode.not_found, "That collection doesn't exist or was already deleted.")
     return {"success": True, "collection_id": collection_id}

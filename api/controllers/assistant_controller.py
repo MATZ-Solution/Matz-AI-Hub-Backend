@@ -22,7 +22,7 @@ from agents.langgraph_agent.main_langgraph_agent import chat as run_agent_chat  
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import (
     create_session, get_sessions, delete_session,
-    save_message, get_messages,
+    save_message, get_messages, session_belongs_to_org,
 )
 from api.schemas.schemas import ChatRequest, ChatResponse, CitationResponse
 
@@ -34,6 +34,10 @@ _agent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="agent")
 def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
     if not request.user_query.strip():
         raise HTTPException(status_code=400, detail="user_query cannot be empty")
+
+    # A session id from another organization must never receive messages.
+    if request.session_id and not session_belongs_to_org(request.session_id, organization_id):
+        raise ApiError(ErrorCode.not_found, "That chat no longer exists. Start a new chat.")
 
     logger.info("API → /chat | org: %s | query: %s", organization_id, request.user_query[:50])
     start_time = time.time()
@@ -92,12 +96,13 @@ def list_sessions_ctrl(organization_id: str) -> dict:
 
 
 def delete_session_ctrl(session_id: str, organization_id: str) -> dict:
-    success = delete_session(session_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to delete session")
+    if not delete_session(session_id, organization_id):
+        raise ApiError(ErrorCode.not_found, "That chat doesn't exist or was already deleted.")
     return {"success": True, "session_id": session_id}
 
 
 def get_session_messages_ctrl(session_id: str, organization_id: str) -> dict:
-    messages = get_messages(session_id)
+    messages = get_messages(session_id, organization_id)
+    if messages is None:
+        raise ApiError(ErrorCode.not_found, "That chat doesn't exist or was deleted.")
     return {"messages": messages, "session_id": session_id}

@@ -32,7 +32,6 @@ QDRANT_URL      = os.environ.get("QDRANT_URL")
 QDRANT_API_KEY  = os.environ.get("QDRANT_API_KEY")
 COLLECTION      = "matz_chunks"
 TOP_K           = 3
-ORGANIZATION_ID = "matz-demo-org"
 MIN_SCORE       = 0.1
 
 _qdrant_client: QdrantClient | None = None
@@ -53,6 +52,9 @@ def retrieve_context(state: AgentState) -> AgentState:
     query  = correct_query(state["user_query"])
     state  = {**state, "user_query": query}
     client = _get_client()
+    # Always the org of the current request — never a module constant, or
+    # every workspace would search the demo org's documents.
+    org_id = state["organization_id"]
 
     query_vector = embed_text(query)
 
@@ -63,7 +65,7 @@ def retrieve_context(state: AgentState) -> AgentState:
             must=[
                 FieldCondition(
                     key="organization_id",
-                    match=MatchValue(value=ORGANIZATION_ID),
+                    match=MatchValue(value=org_id),
                 )
             ]
         ),
@@ -103,7 +105,8 @@ def retrieve_all(state: AgentState) -> AgentState:
     included in the response — no code changes needed.
     """
     client = _get_client()
-    logger.info("Retrieve all → fetching all chunks for org: %s", ORGANIZATION_ID)
+    org_id = state["organization_id"]
+    logger.info("Retrieve all → fetching all chunks for org: %s", org_id)
 
     # Scroll through ALL points for this organization
     all_docs = []
@@ -116,7 +119,7 @@ def retrieve_all(state: AgentState) -> AgentState:
                 must=[
                     FieldCondition(
                         key="organization_id",
-                        match=MatchValue(value=ORGANIZATION_ID),
+                        match=MatchValue(value=org_id),
                     )
                 ]
             ),

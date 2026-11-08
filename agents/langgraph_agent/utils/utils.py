@@ -304,6 +304,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 # most that many clients for the life of the process.
 
 import threading
+import uuid
 
 _local = threading.local()
 
@@ -415,18 +416,42 @@ def get_sessions(organization_id: str = "matz-demo-org") -> list:
         return []
 
 
-def delete_session(session_id: str) -> bool:
+def session_belongs_to_org(session_id: str, organization_id: str) -> bool:
+    """True only if the session exists AND belongs to this organization.
+
+    Every session-scoped read or write checks this first: messages carry no
+    organization_id of their own, so the session is the tenant boundary.
     """
-    Deletes a session and all its messages (cascade delete).
-    Returns True if successful.
+    if not _is_uuid(session_id):
+        return False
+    client = get_supabase()
+    result = _exec(client.table("sessions").select("id")
+                   .eq("id", session_id).eq("organization_id", organization_id).limit(1))
+    return bool(result.data)
+
+
+def delete_session(session_id: str, organization_id: str) -> bool:
     """
-    try:
-        client = get_supabase()
-        _exec(client.table("sessions").delete().eq("id", session_id))
+    Deletes one of this organization's sessions and its messages (cascade).
+    Returns False if no such session exists in this organization. Database
+    errors propagate so the API reports them instead of a false "not found".
+    """
+    if not _is_uuid(session_id):
+        return False
+    client = get_supabase()
+    result = _exec(client.table("sessions").delete()
+                   .eq("id", session_id).eq("organization_id", organization_id))
+    deleted = bool(result.data)
+    if deleted:
         logger.info("Supabase → session deleted: %s", session_id)
+    return deleted
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
         return True
-    except Exception as e:
-        logger.error("Supabase → delete_session failed: %s", e)
+    except ValueError:
         return False
 
 
@@ -465,19 +490,17 @@ def save_message(
         return None
 
 
-def get_messages(session_id: str) -> list:
-    """Returns all messages for a session, oldest first."""
-    try:
-        client = get_supabase()
-        result = _exec(client.table("messages") \
-            .select("*") \
-            .eq("session_id", session_id) \
-            .order("created_at", desc=False) \
-            )
-        return result.data
-    except Exception as e:
-        logger.error("Supabase → get_messages failed: %s", e)
-        return []
+def get_messages(session_id: str, organization_id: str) -> list | None:
+    """This organization's session messages, oldest first; None if the
+    session does not exist in this organization."""
+    if not session_belongs_to_org(session_id, organization_id):
+        return None
+    client = get_supabase()
+    result = _exec(client.table("messages")
+                   .select("*")
+                   .eq("session_id", session_id)
+                   .order("created_at", desc=False))
+    return result.data
 
 
 
@@ -521,16 +544,17 @@ def create_collection_in_db(
 
 
 
-def delete_collection_from_db(collection_id: str) -> bool:
-    """Deletes a collection from Supabase."""
-    try:
-        client = get_supabase()
-        _exec(client.table("collections").delete().eq("id", collection_id))
-        logger.info("Supabase → collection deleted: %s", collection_id)
-        return True
-    except Exception as e:
-        logger.error("Supabase → delete_collection failed: %s", e)
+def delete_collection_from_db(collection_id: str, organization_id: str) -> bool:
+    """Deletes one of this organization's collections. False if not found."""
+    if not _is_uuid(collection_id):
         return False
+    client = get_supabase()
+    result = _exec(client.table("collections").delete()
+                   .eq("id", collection_id).eq("organization_id", organization_id))
+    deleted = bool(result.data)
+    if deleted:
+        logger.info("Supabase → collection deleted: %s", collection_id)
+    return deleted
 
 # ── Workspace settings ────────────────────────────────────────────────────────
 
