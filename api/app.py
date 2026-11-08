@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import check_supabase_connection
 from api.helpers.qdrant_helper import ensure_qdrant_indexes
+from api.errors import install_error_handling
 from api.config.settings import (
     APP_TITLE, APP_DESCRIPTION, APP_VERSION, missing_required_env,
     CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS,
@@ -47,6 +48,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=APP_TITLE, description=APP_DESCRIPTION, version=APP_VERSION, lifespan=lifespan)
+
+# Installed before CORS so CORS stays the outermost layer and error responses
+# still carry CORS headers (otherwise the browser reports them as network errors).
+install_error_handling(app)
 
 app.add_middleware(
     CORSMiddleware,

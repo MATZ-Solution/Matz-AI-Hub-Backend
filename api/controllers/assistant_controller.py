@@ -11,8 +11,12 @@ call it, time it, and persist the turn to Supabase.
 """
 
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from fastapi import HTTPException
+
+from agents.langgraph_agent.LLMs.llm import ProviderError
+from api.errors import ApiError, ErrorCode
 
 from agents.langgraph_agent.main_langgraph_agent import chat as run_agent_chat   # ← agent <-> backend integration point
 from agents.langgraph_agent.utils.utils import logger
@@ -23,6 +27,10 @@ from agents.langgraph_agent.utils.utils import (
 from api.schemas.schemas import ChatRequest, ChatResponse, CitationResponse
 
 
+CHAT_TIMEOUT_SECONDS = 30
+_agent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="agent")
+
+
 def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
     if not request.user_query.strip():
         raise HTTPException(status_code=400, detail="user_query cannot be empty")
@@ -30,15 +38,21 @@ def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
     logger.info("API → /chat | org: %s | query: %s", organization_id, request.user_query[:50])
     start_time = time.time()
 
+    # Hard 30 s ceiling for the whole turn (router, grading, generation and
+    # checks can each call the provider). The worker thread is not killed on
+    # timeout, but the user gets an answer instead of a hung request.
+    future = _agent_pool.submit(
+        run_agent_chat,
+        user_query=request.user_query,
+        chat_history=request.chat_history,
+        organization_id=organization_id,
+    )
     try:
-        answer, citations, _, is_grounded = run_agent_chat(
-            user_query=request.user_query,
-            chat_history=request.chat_history,
-            organization_id=organization_id,
-        )
-    except Exception as e:
-        logger.error("Agent error: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+        answer, citations, _, is_grounded = future.result(timeout=CHAT_TIMEOUT_SECONDS)
+    except FutureTimeout:
+        raise ApiError(ErrorCode.timeout, log_detail=f"agent exceeded {CHAT_TIMEOUT_SECONDS}s")
+    except ProviderError as e:
+        raise ApiError(ErrorCode(e.kind), log_detail=f"provider: {e}")
 
     response_time_ms = int((time.time() - start_time) * 1000)
 

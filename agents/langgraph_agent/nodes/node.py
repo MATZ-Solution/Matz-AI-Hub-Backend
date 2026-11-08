@@ -225,13 +225,10 @@ def generate_answer(state: AgentState) -> AgentState:
             f"Format as a numbered list with the document name as heading and 2-3 key points under each."
         )
         messages_for_llm = history + [{"role": "user", "content": current_message}]
-        try:
-            # Overview answers summarize every document in the knowledge base,
-            # which can easily exceed the default 1024-token cap and get cut
-            # off mid-list — give this case a much larger budget.
-            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm, max_tokens=4096)
-        except RuntimeError as e:
-            answer = f"[Setup needed] {e}"
+        # Overview answers summarize every document in the knowledge base,
+        # which can easily exceed the default 1024-token cap and get cut
+        # off mid-list — give this case a much larger budget.
+        answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm, max_tokens=4096)
 
     elif docs:
         # ── Case 2: Specific chunks → answer specific question ────────────────
@@ -245,19 +242,13 @@ def generate_answer(state: AgentState) -> AgentState:
             f"'kya', 'hai', 'batao', 'mujhe'.]"
         )
         messages_for_llm = history + [{"role": "user", "content": current_message}]
-        try:
-            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
-        except RuntimeError as e:
-            answer = f"[Setup needed] {e}"
+        answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
 
     elif query_type in ("small_talk", "out_of_scope"):
         # ── Case 3: Small talk or out of scope → natural LLM ─────────────────
         current_message = f"USER MESSAGE:\n{state['user_query']}"
         messages_for_llm = history + [{"role": "user", "content": current_message}]
-        try:
-            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
-        except RuntimeError as e:
-            answer = f"[Setup needed] {e}"
+        answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
 
     elif history:
         # ── Case 4: No chunks + history → check history only ─────────────────
@@ -277,10 +268,7 @@ def generate_answer(state: AgentState) -> AgentState:
             f"[LANGUAGE INSTRUCTION: Reply in the same language as the USER MESSAGE.]"
         )
         messages_for_llm = history + [{"role": "user", "content": current_message}]
-        try:
-            answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
-        except RuntimeError as e:
-            answer = f"[Setup needed] {e}"
+        answer = call_llm(system_prompt=system_prompt, messages=messages_for_llm)
 
     else:
         # ── Case 5: No chunks + no history → fixed response, no LLM ─────────

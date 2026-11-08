@@ -19,6 +19,9 @@ for the current list, since Groq deprecates models periodically):
 """
 
 import os
+import time
+
+import groq
 from groq import Groq
 from dotenv import load_dotenv
 from agents.langgraph_agent.utils.utils import logger
@@ -27,6 +30,52 @@ load_dotenv()
 
 _client: Groq | None = None
 
+# Task A2: retry provider 429s and 5xx twice (after 1 s, then 3 s) and give
+# each attempt a hard 30 s timeout. The SDK's own retries are turned off so
+# these are the only ones.
+RETRY_DELAYS_SECONDS = (1, 3)
+REQUEST_TIMEOUT_SECONDS = 30
+
+
+class ProviderError(Exception):
+    """The LLM provider failed. `kind` maps onto the API error contract:
+    "provider_unavailable" | "rate_limited" | "timeout"."""
+
+    def __init__(self, kind: str, detail: str):
+        super().__init__(detail)
+        self.kind = kind
+
+
+def _is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, (groq.APITimeoutError, groq.APIConnectionError)):
+        return True
+    status = getattr(exc, "status_code", None)
+    return status == 429 or (status is not None and status >= 500)
+
+
+def _to_provider_error(exc: Exception) -> ProviderError:
+    if isinstance(exc, groq.APITimeoutError):
+        return ProviderError("timeout", str(exc))
+    if getattr(exc, "status_code", None) == 429:
+        return ProviderError("rate_limited", str(exc))
+    # Expired/invalid key (401), connection failures, 5xx and anything else.
+    return ProviderError("provider_unavailable", str(exc))
+
+
+def _create_completion(**kwargs):
+    """chat.completions.create with the A2 retry schedule. Raises ProviderError."""
+    client = _get_client()
+    for attempt in range(len(RETRY_DELAYS_SECONDS) + 1):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except groq.GroqError as exc:
+            if attempt < len(RETRY_DELAYS_SECONDS) and _is_retryable(exc):
+                delay = RETRY_DELAYS_SECONDS[attempt]
+                logger.warning("LLM call failed (%s), retrying in %ds", type(exc).__name__, delay)
+                time.sleep(delay)
+                continue
+            raise _to_provider_error(exc) from exc
+
 
 def _get_client() -> Groq:
     """Lazily initialise the Groq client (once per process)."""
@@ -34,11 +83,8 @@ def _get_client() -> Groq:
     if _client is None:
         api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
-            raise RuntimeError(
-                "GROQ_API_KEY not set. Get a free key at "
-                "https://console.groq.com/keys then add it to your .env file."
-            )
-        _client = Groq(api_key=api_key)
+            raise ProviderError("provider_unavailable", "GROQ_API_KEY is not set")
+        _client = Groq(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0)
     return _client
 
 
@@ -74,7 +120,6 @@ def call_llm(
     Returns:
         The assistant's reply as a plain string.
     """
-    client = _get_client()
     full_messages = [{"role": "system", "content": system_prompt}] + messages
 
     kwargs = {}
@@ -83,7 +128,7 @@ def call_llm(
     if reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
 
-    response = client.chat.completions.create(
+    response = _create_completion(
         model=model,
         messages=full_messages,
         temperature=temperature,
@@ -106,7 +151,7 @@ def ping_provider(model: str) -> None:
     Raises if the key is missing, expired or revoked, or the provider is down.
     A truncated reply is fine — the request itself succeeding is the signal.
     """
-    _get_client().chat.completions.create(
+    _create_completion(
         model=model,
         messages=[{"role": "user", "content": "ping"}],
         max_tokens=1,
