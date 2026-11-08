@@ -89,6 +89,10 @@ as $$
     order by m.created_at;
 $$;
 
+-- ── Migrations ───────────────────────────────────────────────────────────────
+-- Later changes live in supabase/migrations/, applied in number order after
+-- this file: 001_chat_events.sql (B2).
+
 -- ── Row level security ───────────────────────────────────────────────────────
 alter table public.sessions           enable row level security;
 alter table public.messages           enable row level security;

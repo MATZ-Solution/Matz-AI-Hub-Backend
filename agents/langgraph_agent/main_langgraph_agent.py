@@ -112,6 +112,17 @@ def chat(
     chat_history: list = None,
     organization_id: str = "matz-demo-org",
 ) -> tuple:
+    result = run_chat(user_query, chat_history, organization_id)
+    return result["answer"], result["citations"], result["chat_history"], result.get("is_grounded", True)
+
+
+def run_chat(
+    user_query: str,
+    chat_history: list | None,
+    organization_id: str,
+) -> dict:
+    """Runs one turn and returns the final graph state (answer, citations,
+    chat_history, is_grounded, query_type, target_collection, ...)."""
     if chat_history is None:
         chat_history = []
 
@@ -139,5 +150,4 @@ def chat(
         "generation_attempts": 0,
         "citations":           [],
     }
-    result = compiled_graph.invoke(initial_state)
-    return result["answer"], result["citations"], result["chat_history"], result.get("is_grounded", True)
+    return compiled_graph.invoke(initial_state)

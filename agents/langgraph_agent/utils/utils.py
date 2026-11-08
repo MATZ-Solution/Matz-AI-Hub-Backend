@@ -504,6 +504,22 @@ def get_messages(session_id: str, organization_id: str) -> list | None:
 
 
 
+# ── Chat events (B2) ─────────────────────────────────────────────────────────
+
+CHAT_OUTCOMES = ("answered", "no_context", "provider_error", "timeout", "rate_limited", "internal")
+
+
+def record_chat_event(event: dict) -> None:
+    """
+    Inserts one row into chat_events for a chat attempt, whatever its outcome.
+    Never raises: losing an analytics row must not turn into a failed chat.
+    """
+    try:
+        _exec(get_supabase().table("chat_events").insert(event))
+    except Exception as e:
+        logger.error("Supabase → record_chat_event failed (outcome=%s): %s", event.get("outcome"), e)
+
+
 # ── Collections ───────────────────────────────────────────────────────────────
 
 def get_collections_from_db(organization_id: str = "matz-demo-org") -> list:

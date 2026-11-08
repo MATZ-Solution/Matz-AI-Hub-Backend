@@ -15,14 +15,18 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from fastapi import HTTPException
 
-from agents.langgraph_agent.LLMs.llm import ProviderError
+import contextvars
+
+from agents.langgraph_agent.LLMs.llm import ProviderError, UsageMeter, usage_meter
+from api.errors import request_id_var
 from api.errors import ApiError, ErrorCode
 
-from agents.langgraph_agent.main_langgraph_agent import chat as run_agent_chat   # ← agent <-> backend integration point
+from agents.langgraph_agent.main_langgraph_agent import run_chat as run_agent_chat   # ← agent <-> backend integration point
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import (
     create_session, get_sessions, delete_session,
     save_message, get_messages, session_belongs_to_org,
+    record_chat_event,
 )
 from api.schemas.schemas import ChatRequest, ChatResponse, CitationResponse
 
@@ -42,22 +46,42 @@ def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
     logger.info("API → /chat | org: %s | query: %s", organization_id, request.user_query[:50])
     start_time = time.time()
 
-    # Hard 30 s ceiling for the whole turn (router, grading, generation and
-    # checks can each call the provider). The worker thread is not killed on
-    # timeout, but the user gets an answer instead of a hung request.
-    future = _agent_pool.submit(
-        run_agent_chat,
-        user_query=request.user_query,
-        chat_history=request.chat_history,
-        organization_id=organization_id,
-    )
-    try:
-        answer, citations, _, is_grounded = future.result(timeout=CHAT_TIMEOUT_SECONDS)
-    except FutureTimeout:
-        raise ApiError(ErrorCode.timeout, log_detail=f"agent exceeded {CHAT_TIMEOUT_SECONDS}s")
-    except ProviderError as e:
-        raise ApiError(ErrorCode(e.kind), log_detail=f"provider: {e}")
+    # Every attempt is logged to chat_events in `finally` (B2), so failures
+    # count in analytics instead of vanishing.
+    meter = UsageMeter()
+    outcome = "internal"
+    result: dict = {}
 
+    try:
+        # Hard 30 s ceiling for the whole turn (router, grading, generation and
+        # checks can each call the provider). The worker thread is not killed
+        # on timeout, but the user gets an answer instead of a hung request.
+        ctx = contextvars.copy_context()
+        ctx.run(usage_meter.set, meter)
+        future = _agent_pool.submit(
+            ctx.run, run_agent_chat,
+            user_query=request.user_query,
+            chat_history=request.chat_history,
+            organization_id=organization_id,
+        )
+        try:
+            result = future.result(timeout=CHAT_TIMEOUT_SECONDS)
+        except FutureTimeout:
+            outcome = "timeout"
+            raise ApiError(ErrorCode.timeout, log_detail=f"agent exceeded {CHAT_TIMEOUT_SECONDS}s")
+        except ProviderError as e:
+            outcome = {"rate_limited": "rate_limited", "timeout": "timeout"}.get(e.kind, "provider_error")
+            raise ApiError(ErrorCode(e.kind), log_detail=f"provider: {e}")
+
+        # "Answered" = the model replied and at least one citation passed the
+        # relevance grading; anything else is no_context (metric definitions).
+        outcome = "answered" if result.get("answer") and result.get("citations") else "no_context"
+    finally:
+        _log_chat_event(request, organization_id, outcome, start_time, meter, result)
+
+    answer = result["answer"]
+    citations = result.get("citations") or []
+    is_grounded = result.get("is_grounded", True)
     response_time_ms = int((time.time() - start_time) * 1000)
 
     if request.session_id:
@@ -72,7 +96,7 @@ def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
         except Exception as e:
             logger.warning("Supabase → failed to save messages: %s", e)
 
-    logger.info("API → /chat done | %dms | %d citations", response_time_ms, len(citations))
+    logger.info("API → /chat done | %s | %dms | %d citations", outcome, response_time_ms, len(citations))
     return ChatResponse(
         answer=answer,
         citations=[CitationResponse(**c) for c in citations],
@@ -81,6 +105,26 @@ def chat_ctrl(request: ChatRequest, organization_id: str) -> ChatResponse:
         response_time_ms=response_time_ms,
         organization_id=organization_id,
     )
+
+
+def _log_chat_event(request: ChatRequest, organization_id: str, outcome: str,
+                    start_time: float, meter: UsageMeter, result: dict) -> None:
+    citations = result.get("citations") or []
+    target = result.get("target_collection")
+    record_chat_event({
+        "organization_id": organization_id,
+        "user_id": None,  # set once authentication (A3) exists
+        "session_id": request.session_id,
+        "outcome": outcome,
+        "latency_ms": int((time.time() - start_time) * 1000),
+        "collections_searched": [target] if target else [],
+        "cited_doc_ids": sorted({c.get("document_id") for c in citations if c.get("document_id")}),
+        "model": ",".join(meter.models) or None,
+        "prompt_tokens": meter.prompt_tokens,
+        "completion_tokens": meter.completion_tokens,
+        "question": request.user_query[:2000],
+        "request_id": request_id_var.get(),
+    })
 
 
 def create_session_ctrl(organization_id: str) -> dict:

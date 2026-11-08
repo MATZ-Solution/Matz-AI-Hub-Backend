@@ -18,8 +18,10 @@ for the current list, since Groq deprecates models periodically):
     - qwen/qwen3-32b                            → reasoning model
 """
 
+import contextvars
 import os
 import time
+from dataclasses import dataclass, field
 
 import groq
 from groq import Groq
@@ -35,6 +37,26 @@ _client: Groq | None = None
 # these are the only ones.
 RETRY_DELAYS_SECONDS = (1, 3)
 REQUEST_TIMEOUT_SECONDS = 30
+
+
+@dataclass
+class UsageMeter:
+    """Token usage summed over every provider call in one chat turn (B2)."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    models: list = field(default_factory=list)
+
+    def add(self, model: str, usage) -> None:
+        if usage is not None:
+            self.prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            self.completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+        if model not in self.models:
+            self.models.append(model)
+
+
+# Set by the chat controller for the duration of one turn. Worker threads must
+# be started with contextvars.copy_context().run to share it.
+usage_meter: contextvars.ContextVar[UsageMeter | None] = contextvars.ContextVar("usage_meter", default=None)
 
 
 class ProviderError(Exception):
@@ -67,7 +89,11 @@ def _create_completion(**kwargs):
     client = _get_client()
     for attempt in range(len(RETRY_DELAYS_SECONDS) + 1):
         try:
-            return client.chat.completions.create(**kwargs)
+            response = client.chat.completions.create(**kwargs)
+            meter = usage_meter.get()
+            if meter is not None:
+                meter.add(kwargs.get("model", ""), getattr(response, "usage", None))
+            return response
         except groq.GroqError as exc:
             if attempt < len(RETRY_DELAYS_SECONDS) and _is_retryable(exc):
                 delay = RETRY_DELAYS_SECONDS[attempt]

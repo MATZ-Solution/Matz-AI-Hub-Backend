@@ -1,5 +1,6 @@
 """Agent tools: router, relevance grader, hallucination checker, citation builder."""
 
+import contextvars
 import re
 import json
 
@@ -337,7 +338,8 @@ def _grade_chunks_parallel(query: str, chunks: list) -> list:
     with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
         # Submit all grading tasks at once
         future_to_index = {
-            executor.submit(_grade_chunk, query, chunk): i
+            # copy_context so these threads share the turn's usage meter (B2)
+            executor.submit(contextvars.copy_context().run, _grade_chunk, query, chunk): i
             for i, chunk in enumerate(chunks)
         }
 
