@@ -1,34 +1,27 @@
 """
-tests/test_agent.py
---------------------
-Basic smoke tests for the agent graph.
+tests/test_agent.py — smoke tests for the agent graph (no network).
 
-Run:
-    cd langgraph_agent
-    pytest tests/
+Run from Backend/:  .venv/bin/pytest tests/test_agent.py -q
 """
 
-from unittest.mock import patch
+from agents.langgraph_agent.nodes import node
+from agents.langgraph_agent.tools import tools
 
 
-def test_chat_returns_tuple():
-    """chat() should return (answer_str, history_list)."""
-    with patch("agents.langgraph_agent.nodes.node.retrieve_context", return_value={
-        "user_query": "hello",
-        "chat_history": [],
-        "retrieved_docs": [],
-        "is_emergency": False,
-        "answer": None,
-    }), patch("agents.langgraph_agent.nodes.node.call_llm", return_value="Hello! How can I help?"):
-        from agents.langgraph_agent.main_langgraph_agent import chat
-        answer, history = chat("hello")
-        assert isinstance(answer, str)
-        assert isinstance(history, list)
+def test_chat_returns_answer_citations_history_and_grounding(monkeypatch):
+    monkeypatch.setattr(node, "call_llm", lambda **kw: "Hello! How can I help?")
+    monkeypatch.setattr(tools, "call_llm", lambda **kw: '{"grounded": true}')
+    from agents.langgraph_agent.main_langgraph_agent import chat
+
+    answer, citations, history, grounded = chat("hello", [], organization_id="org-a")
+    assert isinstance(answer, str) and answer
+    assert citations == []
+    assert isinstance(history, list)
+    assert isinstance(grounded, bool)
 
 
 def test_emergency_short_circuits():
-    """Urgent queries should return EMERGENCY_RESPONSE without calling the LLM."""
-    from agents.langgraph_agent.nodes.node import safety_check
+    """Urgent queries are flagged without calling the LLM."""
     state = {
         "user_query": "we have a data breach",
         "chat_history": [],
@@ -36,5 +29,4 @@ def test_emergency_short_circuits():
         "is_emergency": False,
         "answer": None,
     }
-    result = safety_check(state)
-    assert result["is_emergency"] is True
+    assert node.safety_check(state)["is_emergency"] is True

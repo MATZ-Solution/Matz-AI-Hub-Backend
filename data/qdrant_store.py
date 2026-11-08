@@ -98,6 +98,16 @@ def scroll_all(org_id: str, *conditions: FieldCondition) -> list:
             return points
 
 
+def exists(org_id: str, *conditions: FieldCondition) -> bool:
+    """True if this org has at least one point matching `conditions`."""
+    page, _ = _get_client().scroll(
+        collection_name=COLLECTION,
+        scroll_filter=org_filter(org_id, *conditions),
+        limit=1, with_payload=False, with_vectors=False,
+    )
+    return bool(page)
+
+
 # ── Writes ───────────────────────────────────────────────────────────────────
 
 def upsert(org_id: str, points: list[PointStruct], batch_size: int = 50) -> None:

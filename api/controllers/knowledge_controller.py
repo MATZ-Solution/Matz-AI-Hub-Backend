@@ -53,7 +53,15 @@ def get_documents_ctrl(organization_id: str) -> DocumentsResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _require_document(document_id: str, organization_id: str) -> None:
+    """404 unless this organization has this document. Another org's id
+    looks exactly like a missing one."""
+    if not qdrant_store.exists(organization_id, qdrant_store.match("document_id", document_id)):
+        raise ApiError(ErrorCode.not_found, "That document doesn't exist or was already deleted.")
+
+
 def delete_document_ctrl(document_id: str, organization_id: str) -> dict:
+    _require_document(document_id, organization_id)
     try:
         delete_document_chunks(document_id, organization_id)
         logger.info("API → deleted document %s", document_id)
@@ -74,6 +82,7 @@ def update_document_ctrl(
     logger.info("API → /documents/%s update", document_id)
     if not is_allowed_extension(file.filename):
         raise ApiError(ErrorCode.invalid_file, "This file type isn't supported. Use PDF, DOCX, PPTX, XLSX or TXT.")
+    _require_document(document_id, organization_id)
 
     tmp_path = None
     try:
