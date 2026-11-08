@@ -16,7 +16,9 @@ from api.controllers import assistant_controller
 from agents.langgraph_agent.LLMs import llm
 from agents.langgraph_agent.LLMs.llm import ProviderError, UsageMeter, usage_meter
 
-client = TestClient(app, raise_server_exceptions=False)
+from tests.conftest import session_headers
+
+client = TestClient(app, raise_server_exceptions=False, headers=session_headers())
 
 CITATION = {
     "chunk_id": "c1", "document_id": "doc-hr", "document_title": "HR Policy",

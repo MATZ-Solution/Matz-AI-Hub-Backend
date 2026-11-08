@@ -19,7 +19,11 @@ GROQ_MODEL_FAST = os.environ.get("GROQ_MODEL_FAST", "openai/gpt-oss-20b")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-REQUIRED_ENV_VARS = ("GROQ_API_KEY", "QDRANT_URL", "SUPABASE_URL", "SUPABASE_KEY")
+REQUIRED_ENV_VARS = ("GROQ_API_KEY", "QDRANT_URL", "SUPABASE_URL", "SUPABASE_KEY", "AUTH_SECRET")
+
+# Interactive docs (/docs, /redoc, /openapi.json) are off unless explicitly
+# enabled, because every route except /health requires a token (A3).
+ENABLE_API_DOCS = os.environ.get("ENABLE_API_DOCS", "").lower() in ("1", "true", "yes")
 
 
 def missing_required_env() -> list[str]:

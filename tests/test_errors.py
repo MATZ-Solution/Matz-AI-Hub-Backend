@@ -23,7 +23,9 @@ from api.routes import health_routes
 CONTRACT_KEYS = {"code", "message", "retryable", "request_id"}
 RAW_PROVIDER_TEXT = "Error code: 401 - {'error': {'message': 'Invalid API Key', 'code': 'expired_api_key'}}"
 
-client = TestClient(app, raise_server_exceptions=False)
+from tests.conftest import session_headers
+
+client = TestClient(app, raise_server_exceptions=False, headers=session_headers())
 
 
 def _chat(monkeypatch, exc):

@@ -41,3 +41,7 @@ python-dotenv==1.0.1
 # TextBlob's .correct() uses its own bundled spelling model, so no NLTK
 # corpus download is needed at build or runtime.
 textblob>=0.18.0,<1
+
+# Authentication (A3): password hashing (argon2id) and session JWT checks
+argon2-cffi>=25.1.0,<26
+PyJWT>=2.10.0,<3

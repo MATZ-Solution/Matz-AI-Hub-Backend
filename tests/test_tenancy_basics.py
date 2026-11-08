@@ -13,7 +13,9 @@ from api.app import app
 from agents.langgraph_agent.nodes import node
 from agents.langgraph_agent.utils import utils
 
-client = TestClient(app, raise_server_exceptions=False)
+from tests.conftest import session_headers
+
+client = TestClient(app, raise_server_exceptions=False, headers=session_headers())
 
 
 # ── Chat retrieval uses the request's organization ──────────────────────────
