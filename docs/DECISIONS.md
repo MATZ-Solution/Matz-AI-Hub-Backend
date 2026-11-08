@@ -29,5 +29,5 @@ Frontend-only decisions are in the frontend repository's docs/DECISIONS.md.
 - A4: store.delete() refuses a call with only the organization condition, so no bug can wipe a whole organization's chunks.
 - F1: the isolation suite runs the real controllers, store and agent nodes against in-memory fakes of Qdrant and Supabase (tests/fakes.py), so CI needs no services or secrets.
 - F1: replacing or deleting a document now returns not_found unless the caller's organization has it, so a guessed id from another org is refused instead of being silently written into the caller's org.
-- F1: the GitHub Actions workflow is committed but runs only once the repository has a GitHub remote; it was verified locally with no .env and an empty environment.
+- F1: the GitHub Actions workflow (.github/workflows/tests.yml) needs no secrets; it was also verified locally with no .env and an empty environment.
 - B4: passwords must be 10 to 128 characters; changing one requires the current password. There is no complexity rule beyond length.
