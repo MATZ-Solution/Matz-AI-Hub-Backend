@@ -19,7 +19,7 @@ from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import check_supabase_connection
 from api.helpers.qdrant_helper import ensure_qdrant_indexes
 from api.config.settings import (
-    APP_TITLE, APP_DESCRIPTION, APP_VERSION,
+    APP_TITLE, APP_DESCRIPTION, APP_VERSION, missing_required_env,
     CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS,
 )
 from api.routes import (
@@ -32,6 +32,14 @@ from api.routes import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("MATZ API starting up...")
+    missing = missing_required_env()
+    if missing:
+        # Fail fast: an API that boots without its provider key answers every
+        # chat with an error instead of refusing to deploy.
+        raise RuntimeError(
+            "Missing required environment variables: " + ", ".join(missing)
+            + ". Set them as Fly/Render secrets or in Backend/.env."
+        )
     ensure_qdrant_indexes()
     check_supabase_connection()
     yield

@@ -98,3 +98,16 @@ def call_llm(
             max_tokens, model,
         )
     return choice.message.content
+
+
+def ping_provider(model: str) -> None:
+    """
+    Smallest possible real request (1 output token), used by GET /health.
+    Raises if the key is missing, expired or revoked, or the provider is down.
+    A truncated reply is fine — the request itself succeeding is the signal.
+    """
+    _get_client().chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": "ping"}],
+        max_tokens=1,
+    )

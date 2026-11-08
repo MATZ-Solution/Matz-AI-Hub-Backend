@@ -10,6 +10,28 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Required secrets ──────────────────────────────────────────────────────────
+# Secrets come from the environment only (Fly/Render secrets, or a local .env
+# that git ignores) — never from code. The API refuses to start without them;
+# see missing_required_env() and api/app.py.
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_MODEL_FAST = os.environ.get("GROQ_MODEL_FAST", "openai/gpt-oss-20b")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+REQUIRED_ENV_VARS = ("GROQ_API_KEY", "QDRANT_URL", "SUPABASE_URL", "SUPABASE_KEY")
+
+
+def missing_required_env() -> list[str]:
+    """Names of required environment variables that are unset or blank."""
+    return [name for name in REQUIRED_ENV_VARS if not (os.environ.get(name) or "").strip()]
+
+
+# ── Health check ──────────────────────────────────────────────────────────────
+# /health makes a real 1-token provider call. Fly probes it every 30 s, so the
+# provider result is cached: ~288 provider calls a day instead of ~2,900.
+HEALTH_PROVIDER_CACHE_SECONDS = 300
+
 # ── Qdrant ────────────────────────────────────────────────────────────────────
 QDRANT_URL = os.environ.get("QDRANT_URL")
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY")
