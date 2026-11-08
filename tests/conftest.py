@@ -1,20 +1,32 @@
 """Shared test setup.
 
-AUTH_SECRET is fixed for tests *before* the app is imported, so tests never
-depend on (or reveal) the real secret in .env — load_dotenv() does not
-override variables that are already set.
+Most tests only need "a signed-in user of org X with role Y". Real sessions
+live in Supabase, so for those tests conftest wraps api.auth.lookup_session:
+tokens made by session_headers() resolve to a test user, and every other
+token goes through the real lookup. This exists only in the test process —
+production code has no such token format. tests/test_auth.py exercises the
+real sign-in, session lookup, expiry and sign-out end to end.
 """
 
-import os
+import json
 
-os.environ["AUTH_SECRET"] = "test-only-auth-secret-not-used-anywhere-else"
+import api.auth as auth
+
+TEST_PREFIX = "test-session:"
+_real_lookup = auth.lookup_session
 
 
-def session_headers(org: str = "matz-demo-org", role: str = "admin", ttl: int = 3600) -> dict:
-    from api.auth import make_token
-    token = make_token(
-        {"sub": "user-test-1", "email": "admin@test.local", "name": "Test Admin",
-         "role": role, "org_id": org},
-        purpose="session", ttl_seconds=ttl,
-    )
-    return {"Authorization": f"Bearer {token}"}
+def _lookup_with_test_tokens(token: str):
+    if token.startswith(TEST_PREFIX):
+        data = json.loads(token[len(TEST_PREFIX):])
+        return auth.CurrentUser(**data)
+    return _real_lookup(token)
+
+
+auth.lookup_session = _lookup_with_test_tokens
+
+
+def session_headers(org: str = "matz-demo-org", role: str = "admin", user_id: str = "user-test-1") -> dict:
+    user = {"id": user_id, "email": "admin@test.local", "name": "Test Admin",
+            "role": role, "organization_id": org}
+    return {"Authorization": f"Bearer {TEST_PREFIX}{json.dumps(user)}"}

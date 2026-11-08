@@ -17,10 +17,9 @@ Frontend-only decisions are in the frontend repository's docs/DECISIONS.md.
 - B2: following the metric definition literally, a reply with no citation (including greetings and small talk) is `no_context`.
 - B2: `model` records every model used in the turn, comma-separated (router, grader and generator can differ); tokens are summed over all of them.
 - Schema changes ship as numbered files in supabase/migrations/, applied in Supabase's SQL Editor.
-- A3: the API owns accounts (users table, argon2id hashes, POST /auth/login) and seeds the first admin; the web app never reads password hashes. ADMIN_EMAIL/ADMIN_PASSWORD are backend-only.
-- A3: Auth.js v5's default session token is encrypted (JWE), which the API cannot verify; it is replaced with an HS256-signed JWT using the shared AUTH_SECRET, as the task list specifies.
-- A3: POST /auth/login is not public either: the web server signs a 60-second "login" token with AUTH_SECRET to call it, so only /health is reachable without a token.
-- A3: the browser calls the API through a same-origin Next.js proxy (/api/backend/*) that adds the session token from its httpOnly cookie; the browser never holds the token or calls the API origin.
+- A3 (changed at the owner's request, 9 Nov 2026): no Auth.js and no shared AUTH_SECRET. The API checks email and password against the Supabase users table (argon2id) and starts a database session: a random 256-bit token whose SHA-256 hash is stored in auth_sessions (migration 003), valid 8 h. The web app keeps the token in an httpOnly, Secure, SameSite=Lax cookie and forwards it as a Bearer token through its same-origin proxy (/api/backend/*). Sign-out revokes the session; a password change revokes the user's other sessions.
+- A3: the API owns accounts and seeds the first admin from ADMIN_EMAIL/ADMIN_PASSWORD (backend-only); the web app never reads password hashes.
+- A3: verified sessions are cached in memory for 30 s, so a revoked session stops working within 30 s; expiry is always checked exactly. If the session store is unreachable, requests fail closed.
 - A3: /docs, /redoc and /openapi.json are disabled unless ENABLE_API_DOCS=true (set locally only).
 - A4: the Qdrant tenant field keeps its existing name, `organization_id`, instead of `org_id`; the JWT claim is `org_id`.
 - A4: `org_filter` lives in data/qdrant_store.py, together with every Qdrant call (query, scroll, upsert, delete, indexes, ping), because the agent, ingestion and API layers all need it.

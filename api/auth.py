@@ -1,24 +1,27 @@
 """
 api/auth.py
 ------------
-Authentication for the API (task A3).
+Authentication for the API.
 
-The web app (Auth.js v5) signs a session JWT with the shared AUTH_SECRET
-(HS256) and the Next.js server forwards it as `Authorization: Bearer <jwt>`.
-This module verifies that token on every route except /health. The org and
-role used by the API come from the verified token only.
+Sign-in checks the email and password against the `users` table (argon2id
+hashes). A successful sign-in creates a row in `auth_sessions` and returns a
+random 256-bit token; the web app keeps it in an httpOnly cookie and sends
+it as `Authorization: Bearer <token>` on every call. Only the token's SHA-256
+hash is stored, and no shared secret is needed between the web app and the
+API (see supabase/migrations/003_auth_sessions.sql).
 
-Token purposes:
-  - "session": a signed-in user's session (8 h), sent on every API call.
-  - "login":   a 60-second token the web server mints to call POST /auth/login,
-               so even the login endpoint is not open to anonymous callers.
+Every route except /health and /auth/login requires a valid, unexpired,
+unrevoked session of an active user. The organization and role used by the
+API come from that session's user only.
 """
 
+import hashlib
 import os
+import secrets
+import threading
 import time
 from dataclasses import dataclass
 
-import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi import Request
@@ -26,12 +29,15 @@ from fastapi import Request
 from agents.langgraph_agent.utils.utils import logger
 from api.errors import ErrorCode, error_response
 
-JWT_ALGORITHM = "HS256"
-JWT_LEEWAY_SECONDS = 30
+SESSION_SECONDS = 8 * 60 * 60
 
-# Paths that never need a token. Everything else does (task A3).
-PUBLIC_PATHS = {"/health"}
-LOGIN_PATH = "/auth/login"
+# Paths that need no session. Everything else does.
+PUBLIC_PATHS = {"/health", "/auth/login"}
+
+# A verified session is reused for this long before the database is asked
+# again, so a revoked session (sign-out, deactivation) stops working within
+# this window at most. Expiry is always checked exactly.
+SESSION_CACHE_SECONDS = 30
 
 # Defaults of argon2-cffi: argon2id, 64 MiB memory, time cost 3.
 _hasher = PasswordHasher()
@@ -62,48 +68,51 @@ def verify_password(password_hash: str | None, password: str) -> bool:
         return False
 
 
-# ── Tokens ───────────────────────────────────────────────────────────────────
+# ── Session tokens ───────────────────────────────────────────────────────────
 
-def _secret() -> str:
-    secret = os.environ.get("AUTH_SECRET", "")
-    if not secret:
-        raise RuntimeError("AUTH_SECRET is not set")
-    return secret
+def new_session_token() -> str:
+    return secrets.token_urlsafe(32)  # 256 bits
 
 
-def decode_token(token: str, purpose: str) -> dict | None:
-    """Claims of a valid, unexpired token with this purpose; None otherwise."""
-    try:
-        claims = jwt.decode(
-            token, _secret(), algorithms=[JWT_ALGORITHM], leeway=JWT_LEEWAY_SECONDS,
-            options={"require": ["exp", "iat"]},
-        )
-    except jwt.PyJWTError:
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# token hash → (cached_at, CurrentUser, expires_at epoch)
+_session_cache: dict[str, tuple[float, CurrentUser, float]] = {}
+_cache_lock = threading.Lock()
+
+
+def forget_session(token: str) -> None:
+    with _cache_lock:
+        _session_cache.pop(hash_token(token), None)
+
+
+def lookup_session(token: str) -> CurrentUser | None:
+    """The active user behind this session token, or None."""
+    from api.helpers import user_store
+
+    token_hash = hash_token(token)
+    now = time.time()
+    with _cache_lock:
+        cached = _session_cache.get(token_hash)
+    if cached and now - cached[0] < SESSION_CACHE_SECONDS and now < cached[2]:
+        return cached[1]
+
+    found = user_store.get_session_user(token_hash)
+    if not found:
+        with _cache_lock:
+            _session_cache.pop(token_hash, None)
         return None
-    return claims if claims.get("purpose") == purpose else None
+    row, expires_at = found
+    user = CurrentUser(id=str(row["id"]), email=row["email"], name=row.get("name") or "",
+                       role=row["role"], organization_id=row["organization_id"])
+    with _cache_lock:
+        _session_cache[token_hash] = (now, user, expires_at)
+    return user
 
 
-def make_token(claims: dict, purpose: str, ttl_seconds: int) -> str:
-    """Used by tests and scripts; the web app signs its own tokens."""
-    now = int(time.time())
-    payload = {**claims, "purpose": purpose, "iat": now, "exp": now + ttl_seconds}
-    return jwt.encode(payload, _secret(), algorithm=JWT_ALGORITHM)
-
-
-def user_from_claims(claims: dict) -> CurrentUser | None:
-    try:
-        return CurrentUser(
-            id=str(claims["sub"]),
-            email=str(claims["email"]),
-            name=str(claims.get("name") or ""),
-            role=str(claims["role"]),
-            organization_id=str(claims["org_id"]),
-        )
-    except KeyError:
-        return None
-
-
-def _bearer(request: Request) -> str | None:
+def bearer_token(request: Request) -> str | None:
     header = request.headers.get("Authorization", "")
     scheme, _, token = header.partition(" ")
     return token.strip() if scheme.lower() == "bearer" and token.strip() else None
@@ -112,28 +121,26 @@ def _bearer(request: Request) -> str | None:
 # ── Middleware + dependency ──────────────────────────────────────────────────
 
 def install_auth(app, docs_paths: set[str]) -> None:
-    """Rejects every request without a valid token, except PUBLIC_PATHS (and
+    """Rejects every request without a valid session, except PUBLIC_PATHS (and
     the API docs when they are enabled). Must be installed before the error
     handling middleware so 401s still carry a request id."""
     open_paths = PUBLIC_PATHS | docs_paths
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        path = request.url.path
-        if request.method == "OPTIONS" or path in open_paths:
+        if request.method == "OPTIONS" or request.url.path in open_paths:
             return await call_next(request)
 
-        token = _bearer(request)
-        if path == LOGIN_PATH:
-            if not token or decode_token(token, "login") is None:
-                return error_response(ErrorCode.unauthorized)
-            return await call_next(request)
-
-        claims = decode_token(token, "session") if token else None
-        user = user_from_claims(claims) if claims else None
+        token = bearer_token(request)
+        try:
+            user = lookup_session(token) if token else None
+        except Exception as e:  # session store unreachable: fail closed
+            logger.error("Auth → session lookup failed: %s", e)
+            return error_response(ErrorCode.internal)
         if user is None:
             return error_response(ErrorCode.unauthorized)
         request.state.user = user
+        request.state.session_token = token
         return await call_next(request)
 
 

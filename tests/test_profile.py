@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from tests.fakes import FakeSupabase
 from api.app import app
-from api.auth import hash_password, make_token, verify_password
+from api import auth
+from api.auth import hash_password, verify_password
 from api.helpers import user_store
 
 
@@ -17,6 +18,7 @@ from api.helpers import user_store
 def db(monkeypatch):
     db = FakeSupabase()
     monkeypatch.setattr(user_store, "get_supabase", lambda: db)
+    monkeypatch.setattr(auth, "_session_cache", {})
     return db
 
 
@@ -26,9 +28,10 @@ def _user(db, org="org-a", name="Mohid Ahmed", password="Old-password-1"):
                                   organization_id=org)
 
 
-def _client(row):
-    token = make_token({"sub": row["id"], "email": row["email"], "name": row["name"],
-                        "role": row["role"], "org_id": row["organization_id"]}, "session", 600)
+def _client(row, password="Old-password-1"):
+    """A client signed in as this user through the real /auth/login."""
+    anon = TestClient(app, raise_server_exceptions=False)
+    token = anon.post("/auth/login", json={"email": row["email"], "password": password}).json()["token"]
     return TestClient(app, raise_server_exceptions=False, headers={"Authorization": f"Bearer {token}"})
 
 
@@ -75,15 +78,9 @@ def test_bad_password_changes_are_refused(db, current, new, message):
     assert verify_password(db.rows("users", id=row["id"])[0]["password_hash"], "Old-password-1")
 
 
-def test_profile_cannot_reach_another_org(db):
-    row = _user(db, org="org-a")
-    forged = {**row, "organization_id": "org-b"}  # right user id, wrong org in token
-    assert _client(forged).get("/me").status_code == 401
-    assert _client(forged).patch("/me", json={"name": "Hijack"}).status_code == 401
-    assert db.rows("users", id=row["id"])[0]["name"] == "Mohid Ahmed"
-
-
 def test_deactivated_user_is_rejected(db):
     row = _user(db)
+    client = _client(row)
     db.rows("users", id=row["id"])[0]["is_active"] = False
-    assert _client(row).get("/me").status_code == 401
+    auth._session_cache.clear()
+    assert client.get("/me").status_code == 401

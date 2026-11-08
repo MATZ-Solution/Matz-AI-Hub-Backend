@@ -5,11 +5,11 @@ changes their password after checking the current one. The user is always
 the one in the verified token, so nobody can edit someone else's profile.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from agents.langgraph_agent.utils.utils import logger
-from api.auth import CurrentUser, get_current_user, hash_password, verify_password
+from api.auth import CurrentUser, get_current_user, hash_password, hash_token, verify_password
 from api.errors import ApiError, ErrorCode
 from api.helpers import user_store
 
@@ -64,7 +64,7 @@ def update_me(request: ProfileUpdate, user: CurrentUser = Depends(get_current_us
 
 
 @router.post("/me/password")
-def change_password(request: PasswordChange, user: CurrentUser = Depends(get_current_user)):
+def change_password(request: PasswordChange, http: Request, user: CurrentUser = Depends(get_current_user)):
     row = _load(user)
     if not verify_password(row["password_hash"], request.current_password):
         raise ApiError(ErrorCode.invalid_request, "Your current password is incorrect.")
@@ -75,5 +75,7 @@ def change_password(request: PasswordChange, user: CurrentUser = Depends(get_cur
     if new == request.current_password:
         raise ApiError(ErrorCode.invalid_request, "Choose a password different from your current one.")
     user_store.update_user(user.id, user.organization_id, {"password_hash": hash_password(new)})
+    # Sign out every other device; this one stays signed in.
+    user_store.revoke_other_sessions(user.id, hash_token(http.state.session_token))
     logger.info("Profile → password changed for %s", user.id)
     return {"success": True}
