@@ -37,3 +37,17 @@ def record_login(user_id: str) -> None:
     _exec(get_supabase().table("users")
           .update({"last_login_at": now, "failed_logins": 0, "updated_at": now})
           .eq("id", user_id))
+
+
+def get_user(user_id: str, organization_id: str) -> dict | None:
+    """The account with this id in this organization (never across orgs)."""
+    rows = _exec(get_supabase().table("users").select("*")
+                 .eq("id", user_id).eq("organization_id", organization_id).limit(1)).data
+    return rows[0] if rows else None
+
+
+def update_user(user_id: str, organization_id: str, values: dict) -> dict | None:
+    values = {**values, "updated_at": datetime.now(timezone.utc).isoformat()}
+    rows = _exec(get_supabase().table("users").update(values)
+                 .eq("id", user_id).eq("organization_id", organization_id)).data
+    return rows[0] if rows else None

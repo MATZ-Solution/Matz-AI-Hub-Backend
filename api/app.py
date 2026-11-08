@@ -25,7 +25,7 @@ from api.config.settings import (
     CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS,
 )
 from api.routes import (
-    health_routes, auth_routes, overview_routes, assistant_routes,
+    health_routes, auth_routes, profile_routes, overview_routes, assistant_routes,
     knowledge_routes, collection_routes, settings_routes,
     analytics_routes,
 )
@@ -73,6 +73,7 @@ app.add_middleware(
 
 app.include_router(health_routes.router)
 app.include_router(auth_routes.router)
+app.include_router(profile_routes.router)
 app.include_router(overview_routes.router)
 app.include_router(assistant_routes.router)
 app.include_router(knowledge_routes.router)
