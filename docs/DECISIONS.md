@@ -36,3 +36,6 @@ Frontend-only decisions are in the frontend repository's docs/DECISIONS.md.
 - A5: a PDF that opens with an empty password (owner restrictions only) is accepted; only a PDF that needs a password to open is refused. Encrypted Office files are detected by their OLE container.
 - A5: a .txt upload must be UTF-8 without NUL bytes.
 - A5: a replacement file is validated and extracted before the old chunks are deleted, so a rejected replacement keeps the current version.
+- A6: the API allows no cross-origin callers by default, because the browser reaches it only through the same-origin proxy; CORS_ALLOW_ORIGINS (exact origins, comma-separated, never *) opens it if ever needed.
+- A6: the web app CSP keeps 'unsafe-inline' for scripts because Next.js inlines its bootstrap scripts; a nonce-based CSP would force every page to render dynamically. Everything else is 'self' only.
+- A6: the API also sends X-Frame-Options, X-Robots-Tag and Cache-Control: no-store, and uvicorn runs with --no-server-header.

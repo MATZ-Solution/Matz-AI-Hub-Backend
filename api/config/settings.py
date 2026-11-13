@@ -52,9 +52,17 @@ SEARCH_MIN_RELEVANCE_SCORE = 0.2
 SEARCH_EXCERPT_LENGTH = 200
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-CORS_ALLOW_ORIGINS = ["*"]
-CORS_ALLOW_METHODS = ["*"]
-CORS_ALLOW_HEADERS = ["*"]
+# A6: the browser reaches the API only through the web app's same-origin
+# proxy (/api/backend/*), so no cross-origin access is needed. Set
+# CORS_ALLOW_ORIGINS (comma-separated, exact origins) only if a browser must
+# call the API directly, e.g. https://matz-ai-hub.vercel.app. Never "*".
+CORS_ALLOW_ORIGINS = [
+    o.strip().rstrip("/") for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",")
+    if o.strip() and o.strip() != "*"
+]
+CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+CORS_ALLOW_HEADERS = ["Authorization", "Content-Type", "X-Request-ID"]
+CORS_EXPOSE_HEADERS = ["X-Request-ID"]
 
 # ── App metadata ──────────────────────────────────────────────────────────────
 APP_TITLE = "MATZ AI Knowledge Assistant"

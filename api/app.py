@@ -21,9 +21,10 @@ from data import qdrant_store
 from api.errors import install_error_handling
 from api.auth import install_auth, seed_admin
 from api.rate_limit import install_ip_rate_limit
+from api.security_headers import install_security_headers
 from api.config.settings import (
     APP_TITLE, APP_DESCRIPTION, APP_VERSION, missing_required_env, ENABLE_API_DOCS,
-    CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS,
+    CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS, CORS_EXPOSE_HEADERS,
 )
 from api.routes import (
     health_routes, auth_routes, profile_routes, overview_routes, assistant_routes,
@@ -56,7 +57,7 @@ app = FastAPI(
     **(_DOCS if ENABLE_API_DOCS else {k: None for k in _DOCS}),
 )
 
-# Middleware order (outermost first): CORS → error handling → IP rate limit → auth → routes.
+# Middleware order (outermost first): security headers → CORS → error handling → IP rate limit → auth → routes.
 # Auth is installed first so it sits innermost: its 401s still get a request
 # id from the error layer and CORS headers from the CORS layer.
 install_auth(app, docs_paths={"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"} if ENABLE_API_DOCS else set())
@@ -73,7 +74,11 @@ app.add_middleware(
     allow_origins=CORS_ALLOW_ORIGINS,
     allow_methods=CORS_ALLOW_METHODS,
     allow_headers=CORS_ALLOW_HEADERS,
+    expose_headers=CORS_EXPOSE_HEADERS,
 )
+
+# Outermost: hardening headers on every response, errors and preflights included (A6).
+install_security_headers(app)
 
 app.include_router(health_routes.router)
 app.include_router(auth_routes.router)

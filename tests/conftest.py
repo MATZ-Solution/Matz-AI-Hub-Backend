@@ -43,3 +43,14 @@ def _reset_rate_limits():
     limiter.reset()
     yield
     limiter.reset()
+
+
+@pytest.fixture
+def allowed_origin():
+    """Allows https://example.com for CORS during one test. The API allows no
+    cross-origin callers by default (A6); the CORS middleware keeps a
+    reference to this same list."""
+    from api import app as app_module
+    app_module.CORS_ALLOW_ORIGINS.append("https://example.com")
+    yield "https://example.com"
+    app_module.CORS_ALLOW_ORIGINS.remove("https://example.com")

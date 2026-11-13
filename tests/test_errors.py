@@ -89,7 +89,7 @@ def test_request_id_is_echoed_and_in_body(monkeypatch):
     assert res.json()["request_id"] == "test-request-1234"
 
 
-def test_error_responses_keep_cors_headers(monkeypatch):
+def test_error_responses_keep_cors_headers(monkeypatch, allowed_origin):
     # An unhandled error must still carry CORS headers, or the browser hides
     # the contract body and reports a network error instead.
     def boom(**_):

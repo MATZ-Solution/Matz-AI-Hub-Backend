@@ -48,7 +48,7 @@ def test_every_route_except_public_ones_requires_a_session(method, path):
         assert res.json()["code"] == "unauthorized"
 
 
-def test_401_carries_cors_and_request_id():
+def test_401_carries_cors_and_request_id(allowed_origin):
     res = anon.get("/sessions", headers={"Origin": "https://example.com"})
     assert res.status_code == 401
     assert "x-request-id" in {k.lower() for k in res.headers}
