@@ -20,6 +20,7 @@ from agents.langgraph_agent.utils.utils import check_supabase_connection
 from data import qdrant_store
 from api.errors import install_error_handling
 from api.auth import install_auth, seed_admin
+from api.rate_limit import install_ip_rate_limit
 from api.config.settings import (
     APP_TITLE, APP_DESCRIPTION, APP_VERSION, missing_required_env, ENABLE_API_DOCS,
     CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS,
@@ -55,10 +56,13 @@ app = FastAPI(
     **(_DOCS if ENABLE_API_DOCS else {k: None for k in _DOCS}),
 )
 
-# Middleware order (outermost first): CORS → error handling → auth → routes.
+# Middleware order (outermost first): CORS → error handling → IP rate limit → auth → routes.
 # Auth is installed first so it sits innermost: its 401s still get a request
 # id from the error layer and CORS headers from the CORS layer.
 install_auth(app, docs_paths={"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"} if ENABLE_API_DOCS else set())
+
+# Per-IP limit (A5), outside auth so floods without a session are limited too.
+install_ip_rate_limit(app)
 
 # Installed before CORS so CORS stays the outermost layer and error responses
 # still carry CORS headers (otherwise the browser reports them as network errors).

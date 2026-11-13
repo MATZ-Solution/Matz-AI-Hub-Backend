@@ -30,3 +30,9 @@ Frontend-only decisions are in the frontend repository's docs/DECISIONS.md.
 - F1: replacing or deleting a document now returns not_found unless the caller's organization has it, so a guessed id from another org is refused instead of being silently written into the caller's org.
 - F1: the GitHub Actions workflow (.github/workflows/tests.yml) needs no secrets; it was also verified locally with no .env and an empty environment.
 - B4: passwords must be 10 to 128 characters; changing one requires the current password. There is no complexity rule beyond length.
+- A5: rate-limit windows are kept in memory in the API process (no Redis, per the task list); with more than one API machine each keeps its own counts. A refused request is not counted, so a blocked user recovers on time.
+- A5: the per-IP limit uses the first X-Forwarded-For entry (set by the web app proxy from Vercel's client IP), else the socket peer. A direct caller can spoof that header, so the per-user limits are the firm ones; /health is exempt so uptime probes are never limited.
+- A5: replacing a document counts as an upload, and a Drive import counts as one upload.
+- A5: a PDF that opens with an empty password (owner restrictions only) is accepted; only a PDF that needs a password to open is refused. Encrypted Office files are detected by their OLE container.
+- A5: a .txt upload must be UTF-8 without NUL bytes.
+- A5: a replacement file is validated and extracted before the old chunks are deleted, so a rejected replacement keeps the current version.

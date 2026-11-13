@@ -11,6 +11,7 @@ from api.schemas.schemas import (
     DriveIngestRequest, DriveIngestResponse,
 )
 from api.auth import CurrentUser, get_current_user
+from api.rate_limit import check_user_limit
 
 router = APIRouter(tags=["knowledge"])
 
@@ -34,6 +35,7 @@ def update_document(
     collection_id: str = Form(...),
     user: CurrentUser = Depends(get_current_user),
 ):
+    check_user_limit(user.id, "upload")
     return update_document_ctrl(
         document_id, file, document_title, collection_name, collection_id, user.organization_id
     )
@@ -48,6 +50,7 @@ def ingest_document(
     document_id: str = Form(...),
     user: CurrentUser = Depends(get_current_user),
 ):
+    check_user_limit(user.id, "upload")
     return ingest_document_ctrl(
         file, document_title, collection_name, collection_id, user.organization_id, document_id
     )
@@ -59,9 +62,11 @@ def ingest_from_drive(
     user: CurrentUser = Depends(get_current_user),
 ):
     """Import every supported document from a public Google Drive folder."""
+    check_user_limit(user.id, "upload")
     return ingest_from_drive_ctrl(request, user.organization_id)
 
 
 @router.post("/search", response_model=SearchResponse)
 def search_content(request: SearchRequest, user: CurrentUser = Depends(get_current_user)):
+    check_user_limit(user.id, "search")
     return search_content_ctrl(request, user.organization_id)

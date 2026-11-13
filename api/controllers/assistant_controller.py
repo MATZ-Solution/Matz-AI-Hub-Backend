@@ -20,6 +20,7 @@ import contextvars
 from agents.langgraph_agent.LLMs.llm import ProviderError, UsageMeter, usage_meter
 from api.errors import request_id_var
 from api.errors import ApiError, ErrorCode
+from api.rate_limit import check_user_limit
 
 from agents.langgraph_agent.main_langgraph_agent import run_chat as run_agent_chat   # ← agent <-> backend integration point
 from agents.langgraph_agent.utils.utils import logger
@@ -53,6 +54,14 @@ def chat_ctrl(request: ChatRequest, organization_id: str, user_id: str | None = 
     result: dict = {}
 
     try:
+        # Per-user limit (A5). Checked inside `try` so a refused message is
+        # still logged to chat_events with outcome=rate_limited.
+        try:
+            check_user_limit(user_id or "anonymous", "chat")
+        except ApiError:
+            outcome = "rate_limited"
+            raise
+
         # Hard 30 s ceiling for the whole turn (router, grading, generation and
         # checks can each call the provider). The worker thread is not killed
         # on timeout, but the user gets an answer instead of a hung request.

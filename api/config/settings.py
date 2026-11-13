@@ -45,6 +45,7 @@ DEFAULT_ORGANIZATION_ID = "matz-demo-org"
 
 # ── Uploads ───────────────────────────────────────────────────────────────────
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".txt"}
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB (A5)
 
 # ── Search ────────────────────────────────────────────────────────────────────
 SEARCH_MIN_RELEVANCE_SCORE = 0.2

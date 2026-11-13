@@ -30,3 +30,16 @@ def session_headers(org: str = "matz-demo-org", role: str = "admin", user_id: st
     user = {"id": user_id, "email": "admin@test.local", "name": "Test Admin",
             "role": role, "organization_id": org}
     return {"Authorization": f"Bearer {TEST_PREFIX}{json.dumps(user)}"}
+
+
+# Rate limits (A5) are process-wide; start every test with empty windows so
+# the suite's own requests never count against each other.
+import pytest
+from api.rate_limit import limiter
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    limiter.reset()
+    yield
+    limiter.reset()

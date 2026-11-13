@@ -15,7 +15,7 @@ from data.pipeline.chunker import chunk_text
 from data.pipeline.ingestor import ingest_chunks
 from data import qdrant_store
 from data.pipeline.ingestor import delete_document_chunks
-from api.helpers.file_helper import is_allowed_extension, save_upload_to_tempfile, cleanup_tempfile
+from api.helpers.file_helper import validate_and_save_upload, cleanup_tempfile
 from api.helpers.drive_helper import (
     DriveError, extract_folder_id, list_folder_files, download_file, MAX_FILES,
 )
@@ -80,20 +80,20 @@ def update_document_ctrl(
     organization_id: str,
 ) -> dict:
     logger.info("API → /documents/%s update", document_id)
-    if not is_allowed_extension(file.filename):
-        raise ApiError(ErrorCode.invalid_file, "This file type isn't supported. Use PDF, DOCX, PPTX, XLSX or TXT.")
     _require_document(document_id, organization_id)
 
     tmp_path = None
     try:
-        delete_document_chunks(document_id, organization_id)
-        tmp_path = save_upload_to_tempfile(file)
+        # Validate the new file before touching the old chunks, so a rejected
+        # replacement leaves the current version in place.
+        tmp_path, _ = validate_and_save_upload(file)
         result = extract_text(tmp_path)
         if not result["success"]:
             raise ApiError(ErrorCode.invalid_file, "We couldn't read any text from this file. Check that it opens and isn't password-protected.", log_detail=f"extraction failed: {result['error']}")
         chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"])
         if not chunks:
             raise ApiError(ErrorCode.invalid_file, "This file has no readable text.")
+        delete_document_chunks(document_id, organization_id)
         ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)
         return {"success": True, "document_id": document_id, "chunks_created": len(chunks), "page_count": result["page_count"], "extraction_method": result["method"]}
     except (HTTPException, ApiError):
@@ -114,12 +114,11 @@ def ingest_document_ctrl(
     document_id: str,
 ) -> IngestResponse:
     logger.info("API → /ingest | doc: %s | org: %s", document_title, organization_id)
-    if not is_allowed_extension(file.filename):
-        raise ApiError(ErrorCode.invalid_file, "This file type isn't supported. Use PDF, DOCX, PPTX, XLSX or TXT.")
 
     tmp_path = None
     try:
-        tmp_path = save_upload_to_tempfile(file)
+        tmp_path, safe_name = validate_and_save_upload(file)
+        logger.info("API → /ingest file accepted: %s", safe_name)
         result = extract_text(tmp_path)
         if not result["success"]:
             raise ApiError(ErrorCode.invalid_file, "We couldn't read any text from this file. Check that it opens and isn't password-protected.", log_detail=f"extraction failed: {result['error']}")
