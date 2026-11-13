@@ -16,7 +16,6 @@ Maps to ERD:
 
 import uuid
 
-from qdrant_client.models import PointStruct
 
 from agents.langgraph_agent.embeddings.embeddings import embed_texts
 from agents.langgraph_agent.utils.utils import logger
@@ -65,10 +64,10 @@ def ingest_chunks(
         point_id = str(uuid.uuid4())
         vector_ids.append(point_id)
 
-        points.append(PointStruct(
-            id      = point_id,
-            vector  = vector,
-            payload = {
+        points.append(qdrant_store.make_point(
+            point_id,
+            vector,
+            {
                 # ERD fields
                 "chunk_id":        f"chunk-{document_id}-{chunk['chunk_index']}",
                 "document_id":     document_id,

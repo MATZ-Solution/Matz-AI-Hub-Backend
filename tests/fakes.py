@@ -8,6 +8,7 @@ real service or secret.
 """
 
 import copy
+import math
 import uuid
 from datetime import datetime, timezone
 
@@ -23,14 +24,29 @@ def _matches(payload: dict, flt: Filter | None) -> bool:
 
 
 class _Hit:
-    def __init__(self, point, score):
+    def __init__(self, point, score, with_vectors=False):
         self.id, self.payload, self.score = point["id"], copy.deepcopy(point["payload"]), score
+        self.vector = copy.deepcopy(point["vector"]) if with_vectors else None
+
+
+def _dense(vector):
+    return vector.get("dense") if isinstance(vector, dict) else vector
+
+
+def _cosine(a, b):
+    if not a or not b:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na, nb = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
 
 
 class FakeQdrant:
-    """Points are dicts {id, vector, payload}. Every point scores the same, so
-    a query returns whatever the filter lets through — exactly what a
-    cross-tenant leak would look like."""
+    """Points are dicts {id, vector, payload}. Dense queries score by cosine
+    and sparse ("bm25") queries by BM25 with Qdrant's IDF, so ranking tests
+    behave like the real thing. With fake_vector() every point gets the same
+    dense score, so a query returns whatever the filter lets through —
+    exactly what a cross-tenant leak would look like."""
 
     def __init__(self):
         self.points: dict = {}
@@ -45,8 +61,33 @@ class FakeQdrant:
             del self.points[pid]
 
     # reads
-    def query_points(self, collection_name, query, query_filter=None, limit=10, with_payload=True):
-        hits = [_Hit(p, 0.9) for p in self.points.values() if _matches(p["payload"], query_filter)]
+    def _sparse_scores(self, query):
+        docs = [p for p in self.points.values() if isinstance(p["vector"], dict) and "bm25" in p["vector"]]
+        n_docs = len(docs)
+        df: dict = {}
+        for p in docs:
+            for i in p["vector"]["bm25"].indices:
+                df[i] = df.get(i, 0) + 1
+        scores = {}
+        for p in docs:
+            sv = p["vector"]["bm25"]
+            weights = dict(zip(sv.indices, sv.values))
+            score = sum(qv * weights[i] * math.log(1 + (n_docs - df[i] + 0.5) / (df[i] + 0.5))
+                        for i, qv in zip(query.indices, query.values) if i in weights)
+            if score > 0:
+                scores[p["id"]] = score
+        return scores
+
+    def query_points(self, collection_name, query, query_filter=None, limit=10, with_payload=True,
+                     using=None, with_vectors=False):
+        candidates = [p for p in self.points.values() if _matches(p["payload"], query_filter)]
+        if using == "bm25":
+            scores = self._sparse_scores(query)
+            hits = [_Hit(p, scores[p["id"]], with_vectors) for p in candidates if p["id"] in scores]
+        else:
+            hits = [_Hit(p, _cosine(query, _dense(p["vector"])) if _dense(p["vector"]) else 0.9, with_vectors)
+                    for p in candidates]
+        hits.sort(key=lambda h: h.score, reverse=True)
         return type("QueryResponse", (), {"points": hits[:limit]})()
 
     def scroll(self, collection_name, scroll_filter=None, limit=10, offset=None,

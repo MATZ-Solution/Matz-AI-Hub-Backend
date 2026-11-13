@@ -11,6 +11,9 @@ tests/test_tenancy.py fails if a Qdrant call appears anywhere else.
 All organizations share one collection; the `organization_id` payload field
 is a keyword index marked as the tenant index (is_tenant), which Qdrant uses
 to keep each tenant's points together.
+
+Each point has two named vectors (task C2): `dense` (the sentence embedding)
+and `bm25` (a sparse term vector, data/sparse.py, IDF applied by Qdrant).
 """
 
 import os
@@ -19,12 +22,21 @@ import threading
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    FieldCondition, Filter, KeywordIndexParams, MatchValue, PointStruct,
+    Distance, FieldCondition, Filter, KeywordIndexParams, MatchValue, Modifier,
+    PointStruct, SparseVector, SparseVectorParams, VectorParams,
 )
+
+from data import sparse
 
 load_dotenv()
 
-COLLECTION = "matz_chunks"
+# Hybrid collection (C2). The pre-C2 collection had one unnamed dense
+# vector; ensure_collection() copies it over once, adding sparse vectors.
+COLLECTION = os.environ.get("QDRANT_COLLECTION", "matz_chunks_v2")
+LEGACY_COLLECTION = "matz_chunks"
+DENSE = "dense"
+SPARSE = "bm25"
+DENSE_SIZE = 384  # all-MiniLM-L6-v2
 TENANT_FIELD = "organization_id"
 TIMEOUT_SECONDS = 30
 SCROLL_PAGE = 256
@@ -32,6 +44,19 @@ SCROLL_PAGE = 256
 # Payload fields used in filters. The tenant field is created as the tenant
 # index; the others are plain keyword indexes.
 INDEXED_FIELDS = ("document_id", "collection_id", "collection_name")
+
+
+def make_point(point_id, dense: list[float], payload: dict) -> PointStruct:
+    """A point with both vectors. The sparse one is built from the document
+    title and the chunk content (which starts with its heading path), so a
+    title word like "Policy" counts for every chunk of that document."""
+    text = f"{payload.get('document_title', '')}\n{payload.get('content', '')}"
+    indices, values = sparse.encode_document(text)
+    return PointStruct(
+        id=point_id,
+        vector={DENSE: dense, SPARSE: SparseVector(indices=indices, values=values)},
+        payload=payload,
+    )
 
 _client: QdrantClient | None = None
 _client_lock = threading.Lock()
@@ -72,14 +97,36 @@ def org_filter(org_id: str, *conditions: FieldCondition) -> Filter:
 # ── Reads ────────────────────────────────────────────────────────────────────
 
 def query(org_id: str, vector: list[float], *conditions: FieldCondition, limit: int = 5):
-    """Nearest chunks to `vector` within this org. Returns scored points."""
+    """Nearest chunks to `vector` (dense only) within this org. Returns scored points."""
     return _get_client().query_points(
         collection_name=COLLECTION,
         query=vector,
+        using=DENSE,
         query_filter=org_filter(org_id, *conditions),
         limit=limit,
         with_payload=True,
     ).points
+
+
+def hybrid_query(org_id: str, dense: list[float], query_text: str,
+                 *conditions: FieldCondition, limit: int = 20) -> tuple[list, list]:
+    """The org's top `limit` chunks by dense similarity and by BM25, as two
+    ranked lists. Sparse hits also carry their dense vector so the caller
+    can score them against the relevance floor. Fusion is in data/retriever.py."""
+    flt = org_filter(org_id, *conditions)
+    client = _get_client()
+    dense_hits = client.query_points(
+        collection_name=COLLECTION, query=dense, using=DENSE,
+        query_filter=flt, limit=limit, with_payload=True,
+    ).points
+    indices, values = sparse.encode_query(query_text)
+    if not indices:
+        return dense_hits, []
+    sparse_hits = client.query_points(
+        collection_name=COLLECTION, query=SparseVector(indices=indices, values=values), using=SPARSE,
+        query_filter=flt, limit=limit, with_payload=True, with_vectors=[DENSE],
+    ).points
+    return dense_hits, sparse_hits
 
 
 def scroll_all(org_id: str, *conditions: FieldCondition) -> list:
@@ -134,6 +181,47 @@ def delete(org_id: str, *conditions: FieldCondition) -> None:
 def ping() -> None:
     """Raises if Qdrant or the collection is unreachable (used by /health)."""
     _get_client().get_collection(COLLECTION)
+
+
+def ensure_collection(logger) -> None:
+    """Creates the hybrid collection if it is missing and, the first time,
+    copies every point of the legacy collection into it with a sparse vector
+    added (no re-embedding). Payloads, including organization_id, are copied
+    unchanged, so tenancy is preserved; this is the one maintenance path that
+    reads across organizations."""
+    client = _get_client()
+    try:
+        client.get_collection(COLLECTION)
+        return
+    except Exception:
+        pass
+    client.create_collection(
+        collection_name=COLLECTION,
+        vectors_config={DENSE: VectorParams(size=DENSE_SIZE, distance=Distance.COSINE)},
+        sparse_vectors_config={SPARSE: SparseVectorParams(modifier=Modifier.IDF)},
+    )
+    logger.info("Qdrant → created hybrid collection %s", COLLECTION)
+    try:
+        client.get_collection(LEGACY_COLLECTION)
+    except Exception:
+        return
+    copied, offset = 0, None
+    while True:
+        page, offset = client.scroll(
+            collection_name=LEGACY_COLLECTION, limit=SCROLL_PAGE, offset=offset,
+            with_payload=True, with_vectors=True,
+        )
+        points = []
+        for p in page:
+            vector = p.vector.get(DENSE) if isinstance(p.vector, dict) else p.vector
+            if vector and (p.payload or {}).get(TENANT_FIELD):
+                points.append(make_point(p.id, vector, p.payload))
+        for i in range(0, len(points), 50):
+            client.upsert(collection_name=COLLECTION, points=points[i:i + 50])
+        copied += len(points)
+        if offset is None:
+            break
+    logger.info("Qdrant → copied %d points from %s into %s", copied, LEGACY_COLLECTION, COLLECTION)
 
 
 def ensure_indexes(logger) -> None:

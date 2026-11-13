@@ -45,6 +45,19 @@ _NUMBERED_HEADING = re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})[.)]?\s+([A-Z][^\n]
 # Table-of-contents entries: dot leaders or a trailing page number.
 _TOC_ENTRY = re.compile(r"(\.{3,}|…{2,}|\s{2,}|\t)\s*\d{1,4}\s*$|\s\d{1,4}$")
 _MAX_HEADING_WORDS = 12
+# Lines dropped entirely (C2): a contents page only repeats section titles,
+# so indexing it makes it outrank the section it points to. A contents
+# entry is a line with dot leaders and a page number, or a numbered title
+# followed by a page number; the "Contents" title goes too.
+_TOC_LEADERS = re.compile(r"(\.{3,}|…+|·{3,}|_{3,})\s*\d{1,4}\s*$")
+_TOC_NUMBERED = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,3}[.)]?\s+[A-Z][^.!?]{0,80}?\s+\d{1,4}$")
+_TOC_TITLES = {"contents", "table of contents", "content"}
+
+
+def is_contents_line(line: str) -> bool:
+    line = line.strip()
+    return bool(_TOC_LEADERS.search(line) or _TOC_NUMBERED.match(line)) \
+        or line.lower().rstrip(":") in _TOC_TITLES
 
 
 def heading_level(line: str) -> int:
@@ -92,6 +105,8 @@ def split_blocks(text: str, page: int = 1) -> list[dict]:
             line = re.sub(r"[ \t]+", " ", raw).strip()
             if not line:
                 flush()
+                continue
+            if is_contents_line(line):
                 continue
             level = heading_level(line)
             if level:

@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
             "Missing required environment variables: " + ", ".join(missing)
             + ". Set them as Fly/Render secrets or in Backend/.env."
         )
+    qdrant_store.ensure_collection(logger)
     qdrant_store.ensure_indexes(logger)
     seed_admin()
     check_supabase_connection()

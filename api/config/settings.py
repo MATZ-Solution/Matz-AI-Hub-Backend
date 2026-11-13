@@ -48,7 +48,7 @@ ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".txt"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB (A5)
 
 # ── Search ────────────────────────────────────────────────────────────────────
-SEARCH_MIN_RELEVANCE_SCORE = 0.2
+# The relevance floor lives in data/retriever.py (shared with chat, C2).
 SEARCH_EXCERPT_LENGTH = 200
 
 # ── CORS ──────────────────────────────────────────────────────────────────────

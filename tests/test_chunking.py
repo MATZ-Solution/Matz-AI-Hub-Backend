@@ -87,9 +87,8 @@ def test_sections_get_their_heading_path_and_page(hr_pdf):
     assert leave["page_number"] == 3
     assert "Up to 5 unused days" in by_heading["8. Annual Leave > 8.1 Carry Over"]["content"]
     assert "Overtime must be approved" in by_heading["2. Working Hours > 2.1 Overtime"]["content"]
-    # The contents page is not mistaken for sections: its entries stay body text.
-    contents = [c for c in chunks if c["page_number"] == 1]
-    assert contents and all(c["heading"] == "HR POLICY HANDBOOK" for c in contents)
+    # The contents page is not indexed (C2): it would outrank the sections.
+    assert not any("........" in c["content"] or "Contents" in c["content"] for c in chunks)
     # A chunk never spans two sections.
     assert "Sick Leave" not in leave["content"].split("\n\n", 1)[1]
 
@@ -152,6 +151,21 @@ def test_text_before_any_heading_uses_the_title():
     chunks = chunk_text("Just a short note without headings.", "d", 1, title="Note")
     assert chunks[0]["heading"] == "Note"
     assert chunks[0]["content"] == "Note\n\nJust a short note without headings."
+
+
+@pytest.mark.parametrize("line, toc", [
+    ("8. Annual Leave ........ 3", True),
+    ("Annual Leave …… 3", True),
+    ("8. Annual Leave 3", True),
+    ("Table of Contents", True),
+    ("Contents", True),
+    ("8. Annual Leave", False),
+    ("Employees get 20 days per year 2024", False),
+    ("Staff receive 5 days.", False),
+])
+def test_contents_lines(line, toc):
+    from data.pipeline.chunker import is_contents_line
+    assert is_contents_line(line) is toc
 
 
 @pytest.mark.parametrize("line, level", [

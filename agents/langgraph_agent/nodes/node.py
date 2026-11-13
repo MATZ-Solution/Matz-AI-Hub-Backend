@@ -21,15 +21,13 @@ from agents.langgraph_agent.embeddings.embeddings import embed_text
 from agents.langgraph_agent.utils.utils import correct_query
 from agents.langgraph_agent.utils.utils import logger
 from data import qdrant_store
-
-TOP_K           = 3
-MIN_SCORE       = 0.1
+from data import retriever
 
 
 def retrieve_context(state: AgentState) -> AgentState:
     """
-    Semantic search — finds top K most similar chunks for specific questions.
-    Used for all knowledge queries except overview.
+    Hybrid search (C2: dense + BM25, fused, relevance floor, top 5) for
+    specific questions. Used for all knowledge queries except overview.
     """
     query  = correct_query(state["user_query"])
     state  = {**state, "user_query": query}
@@ -37,15 +35,10 @@ def retrieve_context(state: AgentState) -> AgentState:
     # every workspace would search the demo org's documents.
     org_id = state["organization_id"]
 
-    results = qdrant_store.query(org_id, embed_text(query), limit=TOP_K)
-
     docs = []
-    for hit in results:
+    for hit in retriever.hybrid_search(org_id, query):
         payload = hit.payload
-        score   = round(hit.score, 3)
-
-        if score < MIN_SCORE:
-            continue
+        score   = round(hit.relevance, 3)
 
         formatted = (
             f"[Source: {payload['document_title']} · "

@@ -45,10 +45,12 @@ def _state(org):
 def test_retrieve_context_filters_on_request_org(monkeypatch):
     fake = _RecordingQdrant()
     monkeypatch.setattr(qdrant_store, "_get_client", lambda: fake)
-    monkeypatch.setattr(node, "embed_text", lambda text: [0.0] * 384)
+    monkeypatch.setattr("agents.langgraph_agent.embeddings.embeddings.embed_text", lambda text: [0.0] * 384)
     monkeypatch.setattr(node, "correct_query", lambda text: text)
     node.retrieve_context(_state("org-b"))
-    assert _org_values(fake.filters) == ["org-b"]
+    # Hybrid retrieval (C2) runs a dense and a sparse query; both are org-b only.
+    orgs = _org_values(fake.filters)
+    assert orgs and set(orgs) == {"org-b"}
 
 
 def test_retrieve_all_filters_on_request_org(monkeypatch):

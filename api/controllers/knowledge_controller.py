@@ -13,14 +13,14 @@ from agents.langgraph_agent.utils.utils import logger
 from data.pipeline.processor import extract_text
 from data.pipeline.chunker import chunk_text
 from data.pipeline.ingestor import ingest_chunks
-from data import qdrant_store
+from data import qdrant_store, retriever
 from data.pipeline.ingestor import delete_document_chunks
 from api.helpers.file_helper import validate_and_save_upload, cleanup_tempfile
 from api.helpers import document_store
 from api.helpers.drive_helper import (
     DriveError, extract_folder_id, list_folder_files, download_file, MAX_FILES,
 )
-from api.config.settings import SEARCH_MIN_RELEVANCE_SCORE, SEARCH_EXCERPT_LENGTH
+from api.config.settings import SEARCH_EXCERPT_LENGTH
 from api.schemas.schemas import (
     DocumentsResponse, DocumentItem, IngestResponse,
     SearchRequest, SearchResponse, SearchResult,
@@ -150,17 +150,15 @@ def search_content_ctrl(request: SearchRequest, organization_id: str) -> SearchR
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="query cannot be empty")
     try:
-        from agents.langgraph_agent.embeddings.embeddings import embed_text
+        # Same hybrid retriever as chat (C2), so search ranks like the assistant.
         conditions = []
         if request.collection_name:
             conditions.append(qdrant_store.match("collection_name", request.collection_name))
-        results = qdrant_store.query(organization_id, embed_text(request.query), *conditions, limit=request.top_k)
+        hits = retriever.hybrid_search(organization_id, request.query, *conditions, top_k=request.top_k)
         search_results = []
-        for hit in results:
+        for hit in hits:
             payload = hit.payload
-            score = round(hit.score, 3)
-            if score < SEARCH_MIN_RELEVANCE_SCORE:
-                continue
+            score = round(hit.relevance, 3)
             content = payload.get("content", "")
             excerpt = content[:SEARCH_EXCERPT_LENGTH] + "..." if len(content) > SEARCH_EXCERPT_LENGTH else content
             search_results.append(SearchResult(document_id=payload.get("document_id", ""), document_title=payload.get("document_title", ""), collection_name=payload.get("collection_name", ""), page_number=payload.get("page_number", 1), chunk_content=excerpt, relevance_score=score))
