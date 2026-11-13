@@ -1,6 +1,6 @@
 """api/routes/analytics_routes.py — Analytics page (usage & performance)."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from api.controllers.analytics_controller import get_analytics_ctrl, DEFAULT_LOOKBACK_DAYS
 from api.schemas.schemas import AnalyticsSummary
@@ -12,6 +12,7 @@ router = APIRouter(tags=["analytics"])
 @router.get("/analytics/summary", response_model=AnalyticsSummary)
 def get_analytics_summary_route(
     user: CurrentUser = Depends(get_current_user),
-    days: int = DEFAULT_LOOKBACK_DAYS,
+    days: int = Query(DEFAULT_LOOKBACK_DAYS, ge=1, le=90),
+    tz: str | None = Query(None, max_length=64),
 ):
-    return get_analytics_ctrl(user.organization_id, days)
+    return get_analytics_ctrl(user.organization_id, days, tz)

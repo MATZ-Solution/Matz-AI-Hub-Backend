@@ -88,12 +88,23 @@ FORGERIES = [
 
 @pytest.mark.parametrize("forgery", FORGERIES)
 @pytest.mark.parametrize("path", ["/documents", "/collections", "/stats", "/sessions",
-                                  "/settings/workspace", "/settings/usage", "/analytics/summary"])
+                                  "/settings/workspace", "/settings/usage", "/analytics/summary",
+                                  "/activity"])
 def test_forged_org_on_reads_is_ignored(world, as_b, path, forgery):
     res = as_b.get(path, **forgery)
     assert res.status_code == 200
     _assert_no_org_a_data(res)
     assert "Workspace org-a" not in res.text
+
+
+def test_activity_counts_only_own_org(world, as_b):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    world["db"].tables.setdefault("chat_events", []).append({"organization_id": ORG_A, "created_at": now})
+    world["db"].tables.setdefault("documents", []).append({"organization_id": ORG_A, "id": DOC_A, "created_at": now})
+    for forgery in FORGERIES:
+        days = as_b.get("/activity", **forgery).json()["days"]
+        assert sum(d["questions"] + d["documents"] for d in days) == 0
 
 
 def test_forged_org_in_search_body(world, as_b):

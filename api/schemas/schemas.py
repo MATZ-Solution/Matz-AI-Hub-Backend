@@ -177,6 +177,17 @@ class PopularCollection(BaseModel):
     percent: float
  
  
+class ActivityPoint(BaseModel):
+    date: str          # YYYY-MM-DD in the viewer's time zone
+    questions: int     # chat attempts (chat_events), failures included
+    documents: int     # documents added that day
+
+
+class ActivityResponse(BaseModel):
+    days: list[ActivityPoint]   # oldest first; the last entry is today
+    time_zone: str
+
+
 class AnalyticsSummary(BaseModel):
     questions_asked: int
     questions_asked_change_pct: float | None

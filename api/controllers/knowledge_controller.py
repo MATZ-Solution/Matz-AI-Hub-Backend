@@ -16,6 +16,7 @@ from data.pipeline.ingestor import ingest_chunks
 from data import qdrant_store
 from data.pipeline.ingestor import delete_document_chunks
 from api.helpers.file_helper import validate_and_save_upload, cleanup_tempfile
+from api.helpers import document_store
 from api.helpers.drive_helper import (
     DriveError, extract_folder_id, list_folder_files, download_file, MAX_FILES,
 )
@@ -64,6 +65,7 @@ def delete_document_ctrl(document_id: str, organization_id: str) -> dict:
     _require_document(document_id, organization_id)
     try:
         delete_document_chunks(document_id, organization_id)
+        document_store.record_deleted(organization_id, document_id)
         logger.info("API → deleted document %s", document_id)
         return {"success": True, "document_id": document_id}
     except Exception as e:
@@ -78,6 +80,7 @@ def update_document_ctrl(
     collection_name: str,
     collection_id: str,
     organization_id: str,
+    user_id: str | None = None,
 ) -> dict:
     logger.info("API → /documents/%s update", document_id)
     _require_document(document_id, organization_id)
@@ -95,6 +98,7 @@ def update_document_ctrl(
             raise ApiError(ErrorCode.invalid_file, "This file has no readable text.")
         delete_document_chunks(document_id, organization_id)
         ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)
+        document_store.record_replaced(organization_id, document_id, document_title, collection_id, collection_name, user_id)
         return {"success": True, "document_id": document_id, "chunks_created": len(chunks), "page_count": result["page_count"], "extraction_method": result["method"]}
     except (HTTPException, ApiError):
         raise
@@ -112,6 +116,7 @@ def ingest_document_ctrl(
     collection_id: str,
     organization_id: str,
     document_id: str,
+    user_id: str | None = None,
 ) -> IngestResponse:
     logger.info("API → /ingest | doc: %s | org: %s", document_title, organization_id)
 
@@ -126,6 +131,7 @@ def ingest_document_ctrl(
         if not chunks:
             raise ApiError(ErrorCode.invalid_file, "This file has no readable text.")
         vector_ids = ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)
+        document_store.record_added(organization_id, document_id, document_title, collection_id, collection_name, user_id)
         logger.info("API → /ingest done | %d chunks | doc: %s", len(vector_ids), document_title)
         return IngestResponse(success=True, document_id=document_id, chunks_created=len(chunks), page_count=result["page_count"], extraction_method=result["method"], vector_ids=vector_ids)
     except (HTTPException, ApiError):

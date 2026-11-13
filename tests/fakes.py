@@ -71,7 +71,8 @@ class FakeQdrant:
 
 # ── Supabase ─────────────────────────────────────────────────────────────────
 
-_UNIQUE_KEYS = {"workspace_settings": "organization_id", "assistant_config": "organization_id"}
+_UNIQUE_KEYS = {"workspace_settings": ("organization_id",), "assistant_config": ("organization_id",),
+                "documents": ("organization_id", "id")}
 
 
 def _now() -> str:
@@ -108,6 +109,12 @@ class _Query:
         allowed = {str(v) for v in values}
         self.filters.append(lambda r: str(r.get(key)) in allowed); return self
 
+    def gte(self, key, value):
+        self.filters.append(lambda r: (r.get(key) or "") >= value); return self
+
+    def range(self, start, end):
+        self.range_ = (start, end); return self
+
     def order(self, key, desc=False):
         self.order_by = (key, desc); return self
 
@@ -120,7 +127,10 @@ class _Query:
         if self.order_by:
             key, desc = self.order_by
             rows.sort(key=lambda r: r.get(key) or "", reverse=desc)
-        return rows[: self.limit_n] if self.limit_n else rows
+        rows = rows[: self.limit_n] if self.limit_n else rows
+        if getattr(self, "range_", None):
+            rows = rows[self.range_[0]: self.range_[1] + 1]
+        return rows
 
     def execute(self):
         table = self.db.tables.setdefault(self.table, [])
@@ -133,8 +143,8 @@ class _Query:
                 full = {"id": str(uuid.uuid4()), "created_at": _now(), **row}
                 table.append(full); data.append(copy.deepcopy(full))
         elif self.op == "upsert":
-            key = _UNIQUE_KEYS.get(self.table, "id")
-            existing = next((r for r in table if r.get(key) == self.payload.get(key)), None)
+            keys = _UNIQUE_KEYS.get(self.table, ("id",))
+            existing = next((r for r in table if all(r.get(k) == self.payload.get(k) for k in keys)), None)
             if existing:
                 existing.update(self.payload); data = [copy.deepcopy(existing)]
             else:

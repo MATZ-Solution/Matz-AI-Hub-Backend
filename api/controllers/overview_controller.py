@@ -9,7 +9,9 @@ from fastapi import HTTPException
 from agents.langgraph_agent.utils.utils import logger
 from agents.langgraph_agent.utils.utils import get_collections_from_db
 from data import qdrant_store
-from api.schemas.schemas import StatsResponse
+from api.schemas.schemas import StatsResponse, ActivityResponse
+from api.errors import ApiError, ErrorCode
+from api.helpers.activity import daily_activity, resolve_tz
 
 
 def get_stats_ctrl(organization_id: str) -> StatsResponse:
@@ -49,3 +51,11 @@ def get_stats_ctrl(organization_id: str) -> StatsResponse:
     except Exception as e:
         logger.error("Stats error: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_activity_ctrl(organization_id: str, days: int, tz: str | None) -> ActivityResponse:
+    try:
+        points = daily_activity(organization_id, days, tz)
+    except Exception as e:
+        raise ApiError(ErrorCode.internal, log_detail=f"activity: {e}")
+    return ActivityResponse(days=points, time_zone=str(resolve_tz(tz)))

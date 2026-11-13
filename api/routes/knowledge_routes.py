@@ -37,7 +37,8 @@ def update_document(
 ):
     check_user_limit(user.id, "upload")
     return update_document_ctrl(
-        document_id, file, document_title, collection_name, collection_id, user.organization_id
+        document_id, file, document_title, collection_name, collection_id, user.organization_id,
+        user_id=user.id,
     )
 
 
@@ -52,7 +53,8 @@ def ingest_document(
 ):
     check_user_limit(user.id, "upload")
     return ingest_document_ctrl(
-        file, document_title, collection_name, collection_id, user.organization_id, document_id
+        file, document_title, collection_name, collection_id, user.organization_id, document_id,
+        user_id=user.id,
     )
 
 

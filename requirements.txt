@@ -44,3 +44,6 @@ textblob>=0.18.0,<1
 
 # Authentication (A3): password hashing (argon2id)
 argon2-cffi>=25.1.0,<26
+
+# IANA time zones for the activity chart (B1); slim images may lack system tzdata
+tzdata>=2024.1
