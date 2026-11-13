@@ -93,12 +93,14 @@ def update_document_ctrl(
         result = extract_text(tmp_path)
         if not result["success"]:
             raise ApiError(ErrorCode.invalid_file, "We couldn't read any text from this file. Check that it opens and isn't password-protected.", log_detail=f"extraction failed: {result['error']}")
-        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"])
+        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"],
+                            blocks=result.get("blocks"), title=document_title)
         if not chunks:
             raise ApiError(ErrorCode.invalid_file, "This file has no readable text.")
+        version = document_store.current_version(organization_id, document_id) + 1
         delete_document_chunks(document_id, organization_id)
-        ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)
-        document_store.record_replaced(organization_id, document_id, document_title, collection_id, collection_name, user_id)
+        ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id, document_version=version)
+        document_store.record_replaced(organization_id, document_id, document_title, collection_id, collection_name, user_id, version)
         return {"success": True, "document_id": document_id, "chunks_created": len(chunks), "page_count": result["page_count"], "extraction_method": result["method"]}
     except (HTTPException, ApiError):
         raise
@@ -127,7 +129,8 @@ def ingest_document_ctrl(
         result = extract_text(tmp_path)
         if not result["success"]:
             raise ApiError(ErrorCode.invalid_file, "We couldn't read any text from this file. Check that it opens and isn't password-protected.", log_detail=f"extraction failed: {result['error']}")
-        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"])
+        chunks = chunk_text(text=result["text"], document_id=document_id, page_count=result["page_count"],
+                            blocks=result.get("blocks"), title=document_title)
         if not chunks:
             raise ApiError(ErrorCode.invalid_file, "This file has no readable text.")
         vector_ids = ingest_chunks(chunks=chunks, document_id=document_id, document_title=document_title, collection_id=collection_id, collection_name=collection_name, organization_id=organization_id)

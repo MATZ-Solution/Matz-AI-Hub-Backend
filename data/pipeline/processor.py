@@ -27,6 +27,7 @@ import os
 import re
 from pathlib import Path
 from agents.langgraph_agent.utils.utils import logger
+from data.pipeline.chunker import split_blocks
 
 # A page yielding fewer than this many characters is treated as having no text
 # layer — i.e. it is scanned (an image of text) rather than digital. Scanned
@@ -70,6 +71,8 @@ def extract_text(file_path: str) -> dict:
             "text": full extracted text,
             "page_count": number of pages,
             "method": "pypdf" | "python-docx" | "python-pptx" | "openpyxl" | "docling" | "plain",
+            "blocks": [{"text", "page", "level"}] in reading order — level 0 is
+                      body text, 1+ a heading (C1: structure-aware chunking),
             "success": True | False,
             "error": error message if failed
         }
@@ -101,9 +104,11 @@ def _extract_txt(path: Path) -> dict:
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
         logger.info("Processor → plain text extracted (%d chars)", len(text))
+        blocks = split_blocks(text)
         return {
             "text": text,
-            "page_count": 1,
+            "blocks": blocks,
+            "page_count": max([b["page"] for b in blocks] or [1]),
             "method": "plain",
             "success": True,
         }
@@ -180,8 +185,10 @@ def _extract_pdf(path: Path) -> dict:
             "Processor → %s extracted %d chars from %d of %d pages (%d via vision model)",
             method, len(text), page_count - len(scanned), page_count, vision_count
         )
+        blocks = [b for n, page_text in enumerate(pages, 1) for b in split_blocks(page_text, n)]
         return {
             "text": text,
+            "blocks": blocks,
             "pages": pages,
             "page_count": page_count,
             "scanned_pages": scanned,
@@ -337,34 +344,73 @@ def _vision_read_pages(path: Path, page_indices: list[int]) -> dict:
     return results
 
 
+def _docx_heading_level(para) -> int:
+    """Level from the paragraph style ("Heading 2" → 2, "Title" → 1), else
+    from the text itself (many documents use bold numbered lines, no style)."""
+    style = (para.style.name if para.style is not None else "") or ""
+    if style == "Title":
+        return 1
+    if m := re.match(r"Heading\s*(\d)", style):
+        return int(m.group(1))
+    from data.pipeline.chunker import heading_level
+    return heading_level(para.text)
+
+
+def _docx_page_breaks(para) -> int:
+    """Page breaks inside a paragraph: hard breaks plus the ones Word recorded
+    when it last laid the document out."""
+    xml = para._p.xml
+    return xml.count('w:type="page"') + xml.count("lastRenderedPageBreak")
+
+
 def _extract_docx(path: Path) -> dict:
-    """Extract text from DOCX using python-docx."""
+    """Extract DOCX in reading order (paragraphs and tables interleaved), with
+    headings from paragraph styles and page numbers from page breaks."""
     try:
         from docx import Document
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
         doc = Document(str(path))
 
-        lines: list[str] = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                lines.append(para.text.strip())
+        blocks: list[dict] = []
+        page, breaks = 1, 0
+        for element in doc.element.body.iterchildren():
+            tag = element.tag.rsplit("}", 1)[-1]
+            if tag == "p":
+                para = Paragraph(element, doc)
+                text = para.text.strip()
+                if text:
+                    blocks.append({"text": text, "page": page, "level": _docx_heading_level(para)})
+                n = _docx_page_breaks(para)
+                page, breaks = page + n, breaks + n
+            elif tag == "tbl":
+                for row in Table(element, doc).rows:
+                    cells = []
+                    for cell in row.cells:
+                        value = cell.text.strip()
+                        if value and value not in cells:  # merged cells repeat
+                            cells.append(value)
+                    if cells:
+                        blocks.append({"text": " | ".join(cells), "page": page, "level": 0})
 
-        for table in doc.tables:
-            for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-                if row_text:
-                    lines.append(row_text)
+        if not breaks and len(blocks) > 50:
+            # Never laid out by Word: estimate ~50 blocks a page.
+            for i, b in enumerate(blocks):
+                b["page"] = 1 + i // 50
 
-        text = "\n\n".join(lines)
+        text = "\n\n".join(b["text"] for b in blocks)
         if not text or len(text) < 50:
             docling_result = _try_docling(path)
             if docling_result:
                 return docling_result
             return {"success": False, "error": "DOCX extraction returned empty text"}
 
-        page_count = max(1, len(doc.paragraphs) // 50)
-        logger.info("Processor → python-docx extracted %d chars (~%d pages)", len(text), page_count)
+        page_count = max([b["page"] for b in blocks] or [1])
+        logger.info("Processor → python-docx extracted %d chars (%d pages, %d headings)",
+                    len(text), page_count, sum(1 for b in blocks if b["level"]))
         return {
             "text": text,
+            "blocks": blocks,
             "page_count": page_count,
             "method": "python-docx",
             "success": True,
@@ -383,21 +429,27 @@ def _extract_pptx(path: Path) -> dict:
         from pptx import Presentation
         prs = Presentation(str(path))
 
-        slides_text: list[str] = []
+        blocks: list[dict] = []
         for slide_idx, slide in enumerate(prs.slides, 1):
-            slide_lines: list[str] = []
+            title_shape = slide.shapes.title
+            title = title_shape.text.strip() if title_shape is not None and title_shape.has_text_frame else ""
+            # Every slide is a section; untitled slides get "Slide n".
+            blocks.append({"text": title or f"Slide {slide_idx}", "page": slide_idx, "level": 1})
             for shape in slide.shapes:
-                if hasattr(shape, "text") and shape.text.strip():
-                    slide_lines.append(shape.text.strip())
-                if shape.has_table:
+                if title_shape is not None and shape.shape_id == title_shape.shape_id:
+                    continue
+                if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip():
+                    for para in shape.text_frame.paragraphs:
+                        line = "".join(r.text for r in para.runs).strip()
+                        if line:
+                            blocks.append({"text": line, "page": slide_idx, "level": 0})
+                if getattr(shape, "has_table", False):
                     for row in shape.table.rows:
                         row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
                         if row_text:
-                            slide_lines.append(row_text)
-            if slide_lines:
-                slides_text.append(f"--- Slide {slide_idx} ---\n" + "\n".join(slide_lines))
+                            blocks.append({"text": row_text, "page": slide_idx, "level": 0})
 
-        text = "\n\n".join(slides_text)
+        text = "\n\n".join(b["text"] for b in blocks if not b["level"])
         page_count = len(prs.slides) or 1
 
         if not text or len(text) < 50:
@@ -409,6 +461,7 @@ def _extract_pptx(path: Path) -> dict:
         logger.info("Processor → python-pptx extracted %d chars from %d slides", len(text), page_count)
         return {
             "text": text,
+            "blocks": blocks,
             "page_count": page_count,
             "method": "python-pptx",
             "success": True,
@@ -428,9 +481,10 @@ def _extract_xlsx(path: Path) -> dict:
         wb = load_workbook(str(path), data_only=True, read_only=True)
 
         sheets_text: list[str] = []
+        blocks: list[dict] = []
         total_rows = 0
 
-        for sheet_name in wb.sheetnames:
+        for sheet_idx, sheet_name in enumerate(wb.sheetnames, 1):
             ws = wb[sheet_name]
             rows_text: list[str] = []
             for row in ws.iter_rows(values_only=True):
@@ -440,9 +494,13 @@ def _extract_xlsx(path: Path) -> dict:
                 total_rows += 1
             if rows_text:
                 sheets_text.append(f"### Sheet: {sheet_name}\n" + "\n".join(rows_text))
+                # One section per sheet; each row is its own paragraph so
+                # rows are never cut in half. "page" is the sheet number.
+                blocks.append({"text": f"Sheet: {sheet_name}", "page": sheet_idx, "level": 1})
+                blocks.extend({"text": r + ".", "page": sheet_idx, "level": 0} for r in rows_text)
 
         text = "\n\n".join(sheets_text)
-        page_count = max(1, total_rows // 60)
+        page_count = max(1, len(wb.sheetnames))
 
         if not text or len(text) < 50:
             docling_result = _try_docling(path)
@@ -450,9 +508,10 @@ def _extract_xlsx(path: Path) -> dict:
                 return docling_result
             return {"success": False, "error": "XLSX extraction returned empty text"}
 
-        logger.info("Processor → openpyxl extracted %d chars (%d rows, ~%d pages)", len(text), total_rows, page_count)
+        logger.info("Processor → openpyxl extracted %d chars (%d rows, %d sheets)", len(text), total_rows, page_count)
         return {
             "text": text,
+            "blocks": blocks,
             "page_count": page_count,
             "method": "openpyxl",
             "success": True,

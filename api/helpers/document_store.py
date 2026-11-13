@@ -20,33 +20,46 @@ def _now() -> str:
 
 
 def record_added(organization_id: str, document_id: str, title: str,
-                 collection_id: str, collection_name: str, user_id: str | None) -> None:
+                 collection_id: str, collection_name: str, user_id: str | None,
+                 version: int = 1) -> None:
     now = _now()
     try:
         _exec(db.get_supabase().table("documents").upsert({
             "organization_id": organization_id, "id": document_id, "title": title,
             "collection_id": collection_id, "collection_name": collection_name,
-            "version": 1, "created_by": user_id, "created_at": now,
+            "version": version, "created_by": user_id, "created_at": now,
             "updated_by": user_id, "updated_at": now, "deleted_at": None,
         }, on_conflict="organization_id,id"))
     except Exception as e:
         logger.error("Supabase → documents insert failed (is migration 004 applied?): %s", e)
 
 
+def current_version(organization_id: str, document_id: str) -> int:
+    """The stored version, or 1 for a document with no row (uploaded before
+    migration 004, or the table is unreachable)."""
+    try:
+        rows = _exec(db.get_supabase().table("documents").select("version")
+                     .eq("organization_id", organization_id).eq("id", document_id).limit(1)).data or []
+        return (rows[0].get("version") or 1) if rows else 1
+    except Exception as e:
+        logger.error("Supabase → documents version read failed: %s", e)
+        return 1
+
+
 def record_replaced(organization_id: str, document_id: str, title: str,
-                    collection_id: str, collection_name: str, user_id: str | None) -> None:
+                    collection_id: str, collection_name: str, user_id: str | None,
+                    version: int) -> None:
     try:
         client = db.get_supabase()
-        rows = _exec(client.table("documents").select("version")
+        rows = _exec(client.table("documents").select("id")
                      .eq("organization_id", organization_id).eq("id", document_id).limit(1)).data or []
         if not rows:
             # A document uploaded before this table existed: start its history now.
-            record_added(organization_id, document_id, title, collection_id, collection_name, user_id)
+            record_added(organization_id, document_id, title, collection_id, collection_name, user_id, version)
             return
         _exec(client.table("documents").update({
             "title": title, "collection_id": collection_id, "collection_name": collection_name,
-            "version": (rows[0].get("version") or 1) + 1,
-            "updated_by": user_id, "updated_at": _now(),
+            "version": version, "updated_by": user_id, "updated_at": _now(),
         }).eq("organization_id", organization_id).eq("id", document_id))
     except Exception as e:
         logger.error("Supabase → documents update failed: %s", e)

@@ -30,6 +30,7 @@ def ingest_chunks(
     collection_id: str,
     collection_name: str,
     organization_id: str,
+    document_version: int = 1,
 ) -> list[str]:
     """
     Embed all chunks and upload to Qdrant.
@@ -41,6 +42,7 @@ def ingest_chunks(
         collection_id:   knowledge_collections.id in ERD
         collection_name: knowledge_collections.name in ERD
         organization_id: organizations.id in ERD (tenant isolation)
+        document_version: the document's version (1, then +1 per replace)
 
     Returns:
         list of Qdrant point IDs (vector_ids) to store in document_chunks.vector_id
@@ -74,7 +76,11 @@ def ingest_chunks(
                 "collection_id":   collection_id,
                 "collection_name": collection_name,
                 "page_number":     chunk["page_number"],
+                "page_end":        chunk.get("page_end", chunk["page_number"]),
+                "heading":         chunk.get("heading", ""),
                 "chunk_index":     chunk["chunk_index"],
+                "token_count":     chunk.get("token_count"),
+                "document_version": document_version,
                 "content":         chunk["content"],
                 # Tenant isolation — filters in retrieve.py use this
                 "organization_id": organization_id,
