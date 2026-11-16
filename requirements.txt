@@ -21,6 +21,9 @@ torch==2.13.0
 
 # Database / auth
 supabase>=2.15.0,<3
+# supabase-auth imports jwt; pinned so a cleanup can't uninstall it again
+# (removing it broke every Supabase call: login returned 500).
+PyJWT>=2.10.0,<3
 
 # HTTP client — pinned to avoid the proxies= kwarg breakage in httpx 0.28+
 httpx>=0.27.0,<0.28
