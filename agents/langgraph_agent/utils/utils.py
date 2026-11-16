@@ -98,10 +98,21 @@ Skips correction if Urdu words are detected.
 # WHOLE API down at startup with ModuleNotFoundError — which is exactly what
 # happened on the first deploy. If it is unavailable, queries are simply passed
 # through uncorrected.
-try:
-    from textblob import TextBlob
-except ImportError:  # pragma: no cover
-    TextBlob = None
+#
+# Loaded on first use, not at startup: TextBlob pulls in NLTK (~100 MB of
+# RAM), which only the chat path needs.
+_textblob = None
+
+
+def _get_textblob():
+    global _textblob
+    if _textblob is None:
+        try:
+            from textblob import TextBlob
+            _textblob = TextBlob
+        except ImportError:  # pragma: no cover
+            _textblob = False
+    return _textblob or None
 
 URDU_MARKERS = [
     "kya", "hai", "kiya", "batao", "mujhe", "mujhey",
@@ -117,6 +128,7 @@ def correct_query(text: str) -> str:
     if any(marker in text_lower.split() for marker in URDU_MARKERS):
         return text
 
+    TextBlob = _get_textblob()
     if TextBlob is None:
         return text
 

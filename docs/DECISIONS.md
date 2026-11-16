@@ -52,3 +52,6 @@ Frontend-only decisions are in the frontend repository's docs/DECISIONS.md.
 - C2: contents-page entries (dot leaders or a numbered title ending in a page number, and the "Contents" title) are not indexed: the live contents page outranked the Annual Leave page because it repeats every section title.
 - C2: chat now keeps the top 5 chunks (was 3), and Content search uses the same retriever (part of C6).
 - C2 runbook: after deploying, run `python -m scripts.reingest --org <org> --force` once per organization so existing documents get C1 chunks without contents entries.
+- Embeddings run on onnxruntime instead of PyTorch, to fit a free 512 MB instance with no card (Fly's trial ended). The model is unchanged: all-MiniLM-L6-v2, the ONNX export published in the same Hugging Face repository, pinned to revision 1110a243, with the same tokenize/mean-pool/normalise steps. Vectors match the PyTorch ones to 2e-7 (cosine 0.99999998), so Qdrant data needs no re-embedding. Measured on a clean install: ~194 MB at startup, ~350 MB with the model loaded (PyTorch peaked ~600 MB plus scikit-learn/scipy it pulled in).
+- TextBlob (and NLTK) are imported on the first chat instead of at startup.
+- The Docker image and the Render build download the model files at build time (HF_HOME inside the app folder), so the service starts offline.

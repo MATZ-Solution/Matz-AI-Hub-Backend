@@ -4,7 +4,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+    HF_HOME=/app/.hf-cache
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl \
@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+# Bake the embedding model into the image so a container starts offline.
+COPY agents/langgraph_agent/embeddings/embeddings.py /tmp/embeddings.py
+RUN python -c "import importlib.util as u; s=u.spec_from_file_location('e','/tmp/embeddings.py'); m=u.module_from_spec(s); s.loader.exec_module(m); m.download_model()"
 
 COPY . .
 

@@ -15,9 +15,12 @@ groq>=0.20.0,<1
 
 # Vector store & embeddings
 qdrant-client>=1.13.0,<2
-sentence-transformers>=3.3.0,<4
-transformers>=4.50.0,<5
-torch==2.13.0
+# all-MiniLM-L6-v2 runs on onnxruntime (same weights, ONNX export), not
+# PyTorch: ~1 GB less RAM, so the API fits a 512 MB instance.
+onnxruntime>=1.20,<2
+tokenizers>=0.20,<1
+huggingface_hub>=0.25,<1
+numpy>=1.26,<3
 
 # Database / auth
 supabase>=2.15.0,<3

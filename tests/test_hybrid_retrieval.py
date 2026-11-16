@@ -71,17 +71,12 @@ def test_leave_policy_returns_annual_leave_first_bm25(qdrant, monkeypatch):
 
 
 def _real_model():
-    try:
-        from sentence_transformers import SentenceTransformer
-        SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
-    except Exception:
-        return False
-    return True
+    from tests.test_embeddings import _model_cached
+    return _model_cached()
 
 
 @pytest.mark.skipif(not _real_model(), reason="embedding model not cached locally")
 def test_leave_policy_returns_annual_leave_first_real_embeddings(qdrant):
-    from agents.langgraph_agent.embeddings.embeddings import embed_texts
     _index(qdrant, None)
     hits = retriever.hybrid_search(ORG, "leave policy")
     # The top two are the Annual Leave section and its 8.1 subsection (they

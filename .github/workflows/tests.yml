@@ -11,9 +11,6 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
-    env:
-      # CPU-only torch wheels (the default ones bundle ~2 GB of CUDA).
-      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
     steps:
       - uses: actions/checkout@v4
 
